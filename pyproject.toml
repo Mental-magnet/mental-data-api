@@ -1,0 +1,14 @@
+[project]
+name = "mm-mental-data"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "aiocache>=0.12.3",
+    "fastapi[standard]>=0.119.1",
+    "httpx>=0.28.1",
+    "pandas>=2.3.3",
+    "pydantic-mongo>=3.1.0",
+    "pydantic-settings>=2.11.0",
+    "sentry-sdk>=2.43.0",
+    "websockets>=15.0.1",
+]

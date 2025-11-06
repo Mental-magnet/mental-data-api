@@ -1,0 +1,5 @@
+from .v1 import ROUTER as V1_ROUTER
+
+ALL_MODULE_ROUTERS = [
+    V1_ROUTER,
+]
