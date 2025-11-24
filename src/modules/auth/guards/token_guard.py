@@ -21,6 +21,7 @@ PUBLIC_PATH_PREFIXES = (
     "/redoc",
     "/openapi.json",
     "/health",
+    "/v1/hypnosis/pipeline/logging/events/webhook",
 )
 
 
@@ -31,12 +32,15 @@ async def verifyAccessToken(request: Request) -> fastapi.Response | None:
         return None
 
     authorization = request.headers.get("Authorization")
-    if not authorization or not authorization.lower().startswith("bearer "):
-        return _unauthorized("Falta el encabezado Authorization con Bearer token.")
-
-    token = authorization[7:].strip()
+    token = ""
+    
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    elif request.query_params.get("token"):
+        token = request.query_params.get("token")
+    
     if not token:
-        return _unauthorized("Token bearer vacío.")
+        return _unauthorized("Falta el token de autenticación (Header Authorization o query param 'token').")
 
     try:
         tokenData = token_utils.parseDerivedToken(token)

@@ -50,17 +50,21 @@ class HypnosisRepository(
         count : int = await self.get_collection().count_documents(finalQuery)
         return count
 
-    async def countNotListenedAudioRequests(
+    async def countAudioRequestsByListenedStatus(
         self,
+        isListened: bool,
         fromDate: int | None,
         toDate: int | None,
     ) -> int:
         """
-        Cuenta las solicitudes de audio marcadas como no escuchadas (isAvailable = True).
+        Cuenta las solicitudes de audio según su estado de reproducción.
+
+        Cuando isListened es True se consideran escuchadas (isAvailable=False),
+        mientras que False contabiliza las no escuchadas (isAvailable=True).
         """
 
         queryFilters = [
-            {"isAvailable": True},
+            {"isAvailable": not isListened},
         ]
 
         if fromDate is not None and toDate is not None:

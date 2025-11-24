@@ -15,25 +15,12 @@ class UsersRepository(
     class Meta:
         collection_name = ENVIRONMENT_CONFIG.USERS_CONFIG.USER_COLLECTION_NAME
 
-    async def countSuscribers(
+    def _buildSubscribersPipeline(
         self,
         isActive: bool,
         fromDate: int | None,
         toDate: int | None,
-    ) -> int:
-        """
-        Calcula el total de suscriptores activos o inactivos usando una
-        agregación que replica la lógica del dashboard.
-
-        El calculo es:
-        - Un suscriptor es activo si:
-            - lastMembership.membershipPaymentDate existe y es menor o igual a hoy
-            - El billingDate (o calculado a partir de membershipDate + 31 días)
-              es mayor o igual a hoy
-        por lo tal:
-        membershipPaymentDate <= hoy <= billingDate
-        """
-
+    ) -> list[dict[str, typing.Any]]:
         pipeline: list[dict[str, typing.Any]] = [
             {
                 "$addFields": {
@@ -113,8 +100,9 @@ class UsersRepository(
             {"$gte": ["$billDate", "$$NOW"]},
         ]
 
+        statusExpr: dict[str, typing.Any]
         if isActive:
-            statusExpr: dict[str, typing.Any] = {"$and": activeConditions}
+            statusExpr = {"$and": activeConditions}
         else:
             statusExpr = {"$not": [{"$and": activeConditions}]}
 
@@ -125,6 +113,32 @@ class UsersRepository(
                     "$expr": statusExpr,
                 }
             }
+        )
+
+        return pipeline
+
+    async def countSuscribers(
+        self,
+        isActive: bool,
+        fromDate: int | None,
+        toDate: int | None,
+    ) -> int:
+        """
+        Calcula el total de suscriptores activos o inactivos usando una
+        agregación que replica la lógica del dashboard.
+
+        El calculo es:
+        - Un suscriptor es activo si:
+            - lastMembership.membershipPaymentDate existe y es menor o igual a hoy
+            - El billingDate (o calculado a partir de membershipDate + 31 días)
+              es mayor o igual a hoy
+        por lo tal:
+        membershipPaymentDate <= hoy <= billingDate
+        """
+        pipeline = self._buildSubscribersPipeline(
+            isActive=isActive,
+            fromDate=fromDate,
+            toDate=toDate,
         )
 
         pipeline.append({"$count": "total"})
@@ -141,11 +155,145 @@ class UsersRepository(
 
         return count
 
+    async def getSuscribers(
+        self,
+        isActive: bool,
+        fromDate: int | None,
+        toDate: int | None,
+    ) -> list[user_schema.UserSchema]:
+        pipeline = self._buildSubscribersPipeline(
+            isActive=isActive,
+            fromDate=fromDate,
+            toDate=toDate,
+        )
+
+        cursor = await self.get_collection().aggregate(pipeline)
+        documents = await cursor.to_list(length=None)
+
+        suscribers: list[user_schema.UserSchema] = []
+        for document in documents:
+            suscribers.append(user_schema.UserSchema.model_validate(document))
+
+        return suscribers
+
+    async def getUsersForGeneralDistribution(
+        self,
+        subscriberActive: bool | None,
+        hasHypnosisRequest: bool | None,
+        fromDate: int | None,
+        toDate: int | None,
+        hypnosisFromDate: int | None,
+        hypnosisToDate: int | None,
+    ) -> list[user_schema.UserSchema]:
+        pipeline: list[dict[str, typing.Any]] = []
+
+        if subscriberActive is not None:
+            pipeline.extend(
+                self._buildSubscribersPipeline(
+                    isActive=subscriberActive,
+                    fromDate=fromDate,
+                    toDate=toDate,
+                )
+            )
+
+        if fromDate is not None and toDate is not None:
+            fromDateParsed = dates_utils.timestampToDatetime(fromDate)
+            toDateParsed = dates_utils.timestampToDatetime(toDate)
+
+            pipeline.append(
+                {
+                    "$match": {
+                        "createdAt": {
+                            "$gte": fromDateParsed,
+                            "$lte": toDateParsed,
+                        }
+                    }
+                }
+            )
+
+        useHypnosisFilter = (
+            hasHypnosisRequest is not None
+            or hypnosisFromDate is not None
+            or hypnosisToDate is not None
+        )
+
+        if useHypnosisFilter:
+            lookupConditions: list[dict[str, typing.Any]] = [
+                {"$eq": ["$userId", "$$userId"]},
+            ]
+
+            effectiveHypnosisFrom = hypnosisFromDate if hypnosisFromDate is not None else fromDate
+            effectiveHypnosisTo = hypnosisToDate if hypnosisToDate is not None else toDate
+
+            if effectiveHypnosisFrom is not None and effectiveHypnosisTo is not None:
+                fromDateParsed = dates_utils.timestampToDatetime(effectiveHypnosisFrom)
+                toDateParsed = dates_utils.timestampToDatetime(effectiveHypnosisTo)
+
+                createdAtAsDate = {
+                    "$convert": {
+                        "input": "$createdAt",
+                        "to": "date",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                }
+
+                lookupConditions.extend(
+                    [
+                        {"$gte": [createdAtAsDate, fromDateParsed]},
+                        {"$lte": [createdAtAsDate, toDateParsed]},
+                    ]
+                )
+
+            # Si no se determina un rango efectivo se evalúa históricamente.
+
+            lookupPipeline: list[dict[str, typing.Any]] = [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": lookupConditions,
+                        }
+                    }
+                },
+                {"$limit": 1},
+            ]
+
+            pipeline.append(
+                {
+                    "$lookup": {
+                        "from": ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_COLLECTION_NAME,
+                        "let": {"userId": {"$toString": "$_id"}},
+                        "pipeline": lookupPipeline,
+                        "as": "audioRequests",
+                    }
+                }
+            )
+
+            if hasHypnosisRequest:
+                pipeline.append({"$match": {"audioRequests": {"$ne": []}}})
+            elif hasHypnosisRequest is False:
+                pipeline.append({"$match": {"audioRequests": {"$eq": []}}})
+
+            pipeline.append({"$project": {"audioRequests": 0}})
+
+        if pipeline:
+            cursor = await self.get_collection().aggregate(pipeline)
+            documents = await cursor.to_list(length=None)
+            return [user_schema.UserSchema.model_validate(document) for document in documents]
+
+        cursor = await self.find_by_with_output_type(
+            query={},
+            output_type=user_schema.UserSchema,
+        )
+
+        return list(cursor)
+
     async def countUsersByHypnosisRequest(
         self,
         isActive: bool,
         fromDate: int | None,
         toDate: int | None,
+        subscriberActive: bool | None,
     ) -> int:
         """
         Cuenta usuarios según hayan generado (activos) o no (inactivos) una
@@ -189,7 +337,18 @@ class UsersRepository(
             {"$limit": 1},
         ]
 
-        pipeline: list[dict[str, typing.Any]] = [
+        pipeline: list[dict[str, typing.Any]] = []
+
+        if subscriberActive is not None:
+            pipeline.extend(
+                self._buildSubscribersPipeline(
+                    isActive=subscriberActive,
+                    fromDate=None,
+                    toDate=None,
+                )
+            )
+
+        pipeline.append(
             {
                 "$lookup": {
                     "from": ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_COLLECTION_NAME,
@@ -198,7 +357,7 @@ class UsersRepository(
                     "as": "audioRequests",
                 }
             }
-        ]
+        )
 
         if isActive:
             pipeline.append({"$match": {"audioRequests": {"$ne": []}}})
@@ -218,6 +377,10 @@ class UsersRepository(
         portal: str,
         fromDate: int | None,
         toDate: int | None,
+        subscriberActive: bool | None,
+        hasHypnosisRequest: bool | None,
+        hypnosisFromDate: int | None,
+        hypnosisToDate: int | None,
     ) -> list[user_schema.UserSchema]:
         """
         Obtiene los usuarios pertenecientes a un portal específico.
@@ -225,66 +388,167 @@ class UsersRepository(
         Permite filtrar por rango de fechas utilizando createdAt.
         """
 
-        queryFilters: list[dict[str, typing.Any]] = [
-            {"userLevel": str(portal)},
+        portalStr = str(portal)
+
+        audioPortalLevel: str | None = None
+        try:
+            portalAsInt = int(portalStr)
+        except ValueError:
+            audioPortalLevel = None
+        else:
+            audioPortalLevel = str(max(portalAsInt - 1, 0))
+
+        # Los usuarios se cuentan por el portal actual, pero sus solicitudes pertenecen al nivel previo.
+
+        pipeline: list[dict[str, typing.Any]] = [
+            {
+                "$match": {
+                    "userLevel": portalStr,
+                }
+            }
         ]
+
+        if subscriberActive is not None:
+            pipeline.extend(
+                self._buildSubscribersPipeline(
+                    isActive=subscriberActive,
+                    fromDate=fromDate,
+                    toDate=toDate,
+                )
+            )
 
         if fromDate is not None and toDate is not None:
             fromDateParsed = dates_utils.timestampToDatetime(fromDate)
             toDateParsed = dates_utils.timestampToDatetime(toDate)
 
-            queryFilters.append(
+            pipeline.append(
                 {
-                    "createdAt": {
-                        "$gte": fromDateParsed,
-                        "$lte": toDateParsed,
+                    "$match": {
+                        "createdAt": {
+                            "$gte": fromDateParsed,
+                            "$lte": toDateParsed,
+                        }
                     }
                 }
             )
 
-        if len(queryFilters) == 1:
-            query: dict[str, typing.Any] = queryFilters[0]
-        else:
-            query = {"$and": queryFilters}
-
-        cursor = await self.find_by_with_output_type(
-            query=query,
-            output_type=user_schema.UserSchema,
+        useHypnosisFilter = (
+            hasHypnosisRequest is not None
+            or hypnosisFromDate is not None
+            or hypnosisToDate is not None
         )
 
-        documents: list[dict[str, typing.Any]] = []
-        
-        for document in cursor:
-            documents.append(document)
-        
+        if useHypnosisFilter:
+            lookupConditions: list[dict[str, typing.Any]] = [
+                {"$eq": ["$userId", "$$userId"]},
+            ]
+
+            effectiveHypnosisFrom = hypnosisFromDate if hypnosisFromDate is not None else fromDate
+            effectiveHypnosisTo = hypnosisToDate if hypnosisToDate is not None else toDate
+
+            if effectiveHypnosisFrom is not None and effectiveHypnosisTo is not None:
+                fromDateParsed = dates_utils.timestampToDatetime(effectiveHypnosisFrom)
+                toDateParsed = dates_utils.timestampToDatetime(effectiveHypnosisTo)
+
+                createdAtAsDate = {
+                    "$convert": {
+                        "input": "$createdAt",
+                        "to": "date",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                }
+
+                lookupConditions.extend(
+                    [
+                        {"$gte": [createdAtAsDate, fromDateParsed]},
+                        {"$lte": [createdAtAsDate, toDateParsed]},
+                    ]
+                )
+
+            if audioPortalLevel is not None:
+                lookupConditions.append(
+                    {
+                        "$eq": [
+                            {
+                                "$convert": {
+                                    "input": "$userLevel",
+                                    "to": "string",
+                                    "onError": None,
+                                    "onNull": None,
+                                }
+                            },
+                            "$$audioPortalLevel",
+                        ]
+                    }
+                )
+
+            # Si no se determina un rango efectivo se evalúa históricamente.
+
+            lookupPipeline: list[dict[str, typing.Any]] = [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": lookupConditions,
+                        }
+                    }
+                },
+                {"$limit": 1},
+            ]
+
+            pipeline.append(
+                {
+                    "$lookup": {
+                        "from": ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_COLLECTION_NAME,
+                        "let": {
+                            "userId": {"$toString": "$_id"},
+                            "audioPortalLevel": audioPortalLevel,
+                        },
+                        "pipeline": lookupPipeline,
+                        "as": "audioRequests",
+                    }
+                }
+            )
+
+            if hasHypnosisRequest:
+                pipeline.append({"$match": {"audioRequests": {"$ne": []}}})
+            elif hasHypnosisRequest is False:
+                pipeline.append({"$match": {"audioRequests": {"$eq": []}}})
+
+            pipeline.append({"$project": {"audioRequests": 0}})
+
+        cursor = await self.get_collection().aggregate(pipeline)
+        documents = await cursor.to_list(length=None)
+
         LOGGER.info(
-            f"Se obtuvieron {len(documents)} usuarios del portal '{portal}' con la consulta: {query}"
+            "Se obtuvieron %s usuarios del portal '%s' con el pipeline: %s",
+            len(documents),
+            portal,
+            pipeline,
         )
 
-        return documents
+        return [user_schema.UserSchema.model_validate(document) for document in documents]
 
     async def countUsersWithAURA(
         self,
         isActive: bool,
         fromDate: int | None,
         toDate: int | None,
+        subscriberActive: bool | None,
     ) -> int:
         """
         Cuenta los usuarios que tienen AURA habilitado.
         """
 
-        queryFilters = []
-
-        if isActive:
-            queryFilters.append({"auraEnabled": True})
-        else:
-            queryFilters.append({"auraEnabled": False})
+        matchFilters: list[dict[str, typing.Any]] = [
+            {"auraEnabled": isActive},
+        ]
 
         if fromDate is not None and toDate is not None:
             fromDateParsed = dates_utils.timestampToDatetime(fromDate)
             toDateParsed = dates_utils.timestampToDatetime(toDate)
 
-            queryFilters.append(
+            matchFilters.append(
                 {
                     "createdAt": {
                         "$gte": fromDateParsed,
@@ -293,17 +557,40 @@ class UsersRepository(
                 }
             )
 
-        if not queryFilters:
-            query: dict[str, object] = {}
-        elif len(queryFilters) == 1:
-            query = queryFilters[0]
+        if len(matchFilters) == 1:
+            baseMatch: dict[str, typing.Any] = matchFilters[0]
         else:
-            query = {"$and": queryFilters}
+            baseMatch = {"$and": matchFilters}
 
-        count = await self.get_collection().count_documents(query)
-        LOGGER.info(
-            f"Se contaron {count} usuarios con AURA usando la consulta: {query}"
+        if subscriberActive is None:
+            count = await self.get_collection().count_documents(baseMatch)
+            LOGGER.info(
+                "Se contaron %s usuarios con AURA con filtros: %s",
+                count,
+                baseMatch,
+            )
+            return count
+
+        pipeline = self._buildSubscribersPipeline(
+            isActive=subscriberActive,
+            fromDate=None,
+            toDate=None,
         )
+
+        pipeline.append({"$match": baseMatch})
+        pipeline.append({"$count": "total"})
+
+        cursor = await self.get_collection().aggregate(pipeline)
+        result = await cursor.to_list(length=1)
+        count = int(result[0]["total"]) if result else 0
+
+        LOGGER.info(
+            "Se contaron %s usuarios con AURA filtrando suscriptores (activo=%s) con filtros: %s",
+            count,
+            subscriberActive,
+            baseMatch,
+        )
+
         return count
 
     async def getDistinctPortals(self) -> list[int]:

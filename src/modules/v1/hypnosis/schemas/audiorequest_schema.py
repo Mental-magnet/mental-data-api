@@ -164,7 +164,7 @@ class AudioRequestSchema(pydantic.BaseModel):
     questions: typing.List[QuestionSchema]
     generatedSections: typing.List[GeneratedSectionSchema]
     generatedText: typing.List[str]
-    userLevel: str
+    userLevel: typing.Optional[str] = None
     userData: UserDataSchema
     version: str
     publicationDate: str
@@ -203,4 +203,9 @@ class AudioRequestCountSchema(pydantic.BaseModel):
     toDate: typing.Optional[int] = pydantic.Field(
         default=None,
         description="Timestamp final (segundos Unix) utilizado para el filtrado.",
+    )
+
+    isListened: typing.Optional[bool] = pydantic.Field(
+        default=None,
+        description="Indica si el conteo corresponde a solicitudes escuchadas (True) o no escuchadas (False).",
     )

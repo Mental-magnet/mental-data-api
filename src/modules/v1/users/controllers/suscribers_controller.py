@@ -30,6 +30,9 @@ async def getSuscribers(
 ) -> suscribers_schema.SuscribersSchema:
     """
     Obtiene el número de suscriptores según los filtros proporcionados.
+
+    Sin rango de fechas devuelve el total histórico; con fromDate/toDate solo
+    contabiliza suscriptores creados dentro del intervalo.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -50,6 +53,7 @@ async def getSuscribers(
         f"Obteniendo suscriptores con isActive={isActive}, fromDate={fromDate}, toDate={toDate}"
     )    
 
+    # Si se entrega un rango el conteo se limita a suscriptores generados dentro de esas fechas.
     count = await suscribers_service.getAllSuscribersCount(
         isActive=isActive,
         fromDate=fromDate,

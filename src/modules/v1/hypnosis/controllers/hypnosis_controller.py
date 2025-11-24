@@ -27,7 +27,10 @@ async def getAudioRequestsCount(
     toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> audiorequest_schema.AudioRequestCountSchema:
     """
-    Obtiene el número de solicitudes de audio según los filtros proporcionados.
+    Obtiene el número de solicitudes de audio.
+
+    Sin rango de fechas devuelve el total histórico; con fromDate/toDate solo
+    cuenta las solicitudes creadas dentro de ese intervalo.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -44,6 +47,7 @@ async def getAudioRequestsCount(
             detail="El parámetro toDate debe ser mayor o igual que fromDate.",
         )
 
+    # Al suministrar un rango se limita el conteo a solicitudes creadas dentro de esas fechas.
     count : int = await hypnosis_service.getAllHypnosisRequestsCount(
         fromDate=fromDate,
         toDate=toDate,
@@ -53,8 +57,8 @@ async def getAudioRequestsCount(
 
 
 @ROUTER.get(
-    "/count/audio-requests/not-listened",
-    summary="Obtener conteo de solicitudes de audio no escuchadas",
+    "/count/audio-requests/listened-status",
+    summary="Obtener conteo de solicitudes de audio por estado de escucha",
     response_class=fastapi.responses.JSONResponse,
     response_model=audiorequest_schema.AudioRequestCountSchema,
     responses={
@@ -63,12 +67,21 @@ async def getAudioRequestsCount(
         500: {"description": "Error interno del servidor"},
     },
 )
-async def getNotListenedAudioRequestsCount(
+async def getAudioRequestsCountByListenedStatus(
+    isListened: typing.Annotated[
+        bool,
+        fastapi.Query(
+            description="Indica si se deben contar solicitudes escuchadas (True) o no escuchadas (False).",
+        ),
+    ] = False,
     fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
     toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> audiorequest_schema.AudioRequestCountSchema:
     """
-    Obtiene el número de solicitudes de audio marcadas como no escuchadas (isAvailable=True).
+    Obtiene el número de solicitudes de audio según su estado de escucha.
+
+    Sin rango de fechas consulta el histórico; al indicar fromDate/toDate se
+    limita a las solicitudes creadas dentro del intervalo.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -84,9 +97,16 @@ async def getNotListenedAudioRequestsCount(
             detail="El parámetro toDate debe ser mayor o igual que fromDate.",
         )
 
-    count: int = await hypnosis_service.getNotListenedHypnosisRequestsCount(
+    # Cuando existe un rango de fechas solo se contabilizan solicitudes creadas dentro del intervalo.
+    count: int = await hypnosis_service.getHypnosisRequestsCountByListenedStatus(
+        isListened=isListened,
         fromDate=fromDate,
         toDate=toDate,
     )
 
-    return audiorequest_schema.AudioRequestCountSchema(count=count, fromDate=fromDate, toDate=toDate)
+    return audiorequest_schema.AudioRequestCountSchema(
+        count=count,
+        fromDate=fromDate,
+        toDate=toDate,
+        isListened=isListened,
+    )
