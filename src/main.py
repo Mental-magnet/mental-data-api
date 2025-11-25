@@ -34,6 +34,7 @@ APP.add_middleware(
 
 securityConfig = SecurityConfig(
     custom_request_check=verifyAccessToken,
+    enable_penetration_detection=False,
     rate_limit=ENVIRONMENT_CONFIG.AUTH_CONFIG.GUARD_RATE_LIMIT,
     rate_limit_window=ENVIRONMENT_CONFIG.AUTH_CONFIG.GUARD_RATE_LIMIT_WINDOW_SECONDS,
 )
