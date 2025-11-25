@@ -3,6 +3,7 @@ applyTo: '**'
 ---
 Siempre usar camelCase.
 El repo trata de una API para un dashboard de analitica.
+Usar Google-style docstrings.
 
 Frameworks y librerias usadas:
 - FastAPI
