@@ -1,8 +1,6 @@
 import typing
 import fastapi
 import logging
-
-from src.modules.v1.shared.utils import dates as dates_utils
 from ..schemas import audiorequest_schema
 from ..services import hypnosis_service
 
@@ -25,11 +23,14 @@ ROUTER = fastapi.APIRouter()
     },
 )
 async def getAudioRequestsCount(
-    fromDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena de fecha ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
-    toDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena de fecha ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> audiorequest_schema.AudioRequestCountSchema:
     """
-    Obtiene el número de solicitudes de audio según los filtros proporcionados.
+    Obtiene el número de solicitudes de audio.
+
+    Sin rango de fechas devuelve el total histórico; con fromDate/toDate solo
+    cuenta las solicitudes creadas dentro de ese intervalo.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -40,42 +41,24 @@ async def getAudioRequestsCount(
             detail="Los parámetros fromDate y toDate deben proporcionarse juntos o no incluirse.",
         )
     
-    # Verificamos el formato ISO de las fechas si son provistas
-    if fromDate is not None and not dates_utils.verifyISOFormat(fromDate):
+    if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"El parámetro fromDate ({fromDate}) no tiene el formato ISO válido.",
+            detail="El parámetro toDate debe ser mayor o igual que fromDate.",
         )
 
-    if toDate is not None and not dates_utils.verifyISOFormat(toDate):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"El parámetro toDate ({toDate}) no tiene el formato ISO válido.",
-        )
-
-    # toDate debe ser mayor o igual a fromDate
-    # comparamos usando timestamp para ser más precisos
-    if fromDate is not None and toDate is not None:
-        fromDateTimestamp = dates_utils.convertISOtoTimestamp(fromDate)
-        toDateTimestamp = dates_utils.convertISOtoTimestamp(toDate)
-
-        if toDateTimestamp < fromDateTimestamp:
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail="El parámetro toDate debe ser mayor o igual que fromDate.",
-            )
-
+    # Al suministrar un rango se limita el conteo a solicitudes creadas dentro de esas fechas.
     count : int = await hypnosis_service.getAllHypnosisRequestsCount(
-        fromDate=fromDate,
-        toDate=toDate,
+        fromDate,
+        toDate,
     )
 
     return audiorequest_schema.AudioRequestCountSchema(count=count , fromDate=fromDate, toDate=toDate)
 
 
 @ROUTER.get(
-    "/count/audio-requests/not-listened",
-    summary="Obtener conteo de solicitudes de audio no escuchadas",
+    "/count/audio-requests/listened-status",
+    summary="Obtener conteo de solicitudes de audio por estado de escucha",
     response_class=fastapi.responses.JSONResponse,
     response_model=audiorequest_schema.AudioRequestCountSchema,
     responses={
@@ -84,12 +67,21 @@ async def getAudioRequestsCount(
         500: {"description": "Error interno del servidor"},
     },
 )
-async def getNotListenedAudioRequestsCount(
-    fromDate: typing.Annotated[typing.Optional[str], fastapi.Query()] = None,
-    toDate: typing.Annotated[typing.Optional[str], fastapi.Query()] = None,
+async def getAudioRequestsCountByListenedStatus(
+    isListened: typing.Annotated[
+        bool,
+        fastapi.Query(
+            description="Indica si se deben contar solicitudes escuchadas (True) o no escuchadas (False).",
+        ),
+    ] = False,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> audiorequest_schema.AudioRequestCountSchema:
     """
-    Obtiene el número de solicitudes de audio marcadas como no escuchadas (isAvailable=True).
+    Obtiene el número de solicitudes de audio según su estado de escucha.
+
+    Sin rango de fechas consulta el histórico; al indicar fromDate/toDate se
+    limita a las solicitudes creadas dentro del intervalo.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -99,31 +91,22 @@ async def getNotListenedAudioRequestsCount(
             detail="Los parámetros fromDate y toDate deben proporcionarse juntos o no incluirse.",
         )
 
-    if fromDate is not None and not dates_utils.verifyISOFormat(fromDate):
+    if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"El parámetro fromDate ({fromDate}) no tiene el formato ISO válido.",
+            detail="El parámetro toDate debe ser mayor o igual que fromDate.",
         )
 
-    if toDate is not None and not dates_utils.verifyISOFormat(toDate):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"El parámetro toDate ({toDate}) no tiene el formato ISO válido.",
-        )
-
-    if fromDate is not None and toDate is not None:
-        fromDateTimestamp = dates_utils.convertISOtoTimestamp(fromDate)
-        toDateTimestamp = dates_utils.convertISOtoTimestamp(toDate)
-
-        if toDateTimestamp < fromDateTimestamp:
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail="El parámetro toDate debe ser mayor o igual que fromDate.",
-            )
-
-    count: int = await hypnosis_service.getNotListenedHypnosisRequestsCount(
-        fromDate=fromDate,
-        toDate=toDate,
+    # Cuando existe un rango de fechas solo se contabilizan solicitudes creadas dentro del intervalo.
+    count: int = await hypnosis_service.getHypnosisRequestsCountByListenedStatus(
+        isListened,
+        fromDate,
+        toDate,
     )
 
-    return audiorequest_schema.AudioRequestCountSchema(count=count, fromDate=fromDate, toDate=toDate)
+    return audiorequest_schema.AudioRequestCountSchema(
+        count=count,
+        fromDate=fromDate,
+        toDate=toDate,
+        isListened=isListened,
+    )

@@ -18,8 +18,8 @@ class HypnosisRepository(
 
     async def countAudioRequests(
         self,
-        fromDate: str | None,
-        toDate: str | None,
+        fromDate: int | None,
+        toDate: int | None,
     ) -> int:
         """
         Cuenta todas las solicitudes de audio en el rango de fechas proporcionado.
@@ -29,9 +29,9 @@ class HypnosisRepository(
 
         queryFilters = []
 
-        if fromDate and toDate:
-            fromDateParsed = dates_utils.parseISODatetime(fromDate)
-            toDateParsed = dates_utils.parseISODatetime(toDate)
+        if fromDate is not None and toDate is not None:
+            fromDateParsed = dates_utils.timestampToDatetime(fromDate)
+            toDateParsed = dates_utils.timestampToDatetime(toDate)
 
             queryFilters.append(
                 {
@@ -50,22 +50,26 @@ class HypnosisRepository(
         count : int = await self.get_collection().count_documents(finalQuery)
         return count
 
-    async def countNotListenedAudioRequests(
+    async def countAudioRequestsByListenedStatus(
         self,
-        fromDate: str | None,
-        toDate: str | None,
+        isListened: bool,
+        fromDate: int | None,
+        toDate: int | None,
     ) -> int:
         """
-        Cuenta las solicitudes de audio marcadas como no escuchadas (isAvailable = True).
+        Cuenta las solicitudes de audio según su estado de reproducción.
+
+        Cuando isListened es True se consideran escuchadas (isAvailable=False),
+        mientras que False contabiliza las no escuchadas (isAvailable=True).
         """
 
         queryFilters = [
-            {"isAvailable": True},
+            {"isAvailable": not isListened},
         ]
 
-        if fromDate and toDate:
-            fromDateParsed = dates_utils.parseISODatetime(fromDate)
-            toDateParsed = dates_utils.parseISODatetime(toDate)
+        if fromDate is not None and toDate is not None:
+            fromDateParsed = dates_utils.timestampToDatetime(fromDate)
+            toDateParsed = dates_utils.timestampToDatetime(toDate)
 
             queryFilters.append(
                 {

@@ -25,3 +25,23 @@ class HypnosisConfig(pydantic_settings.BaseSettings):
         default="audio-requests",
         description="Nombre de la colección donde se guardan las solicitudes de audio.",
     )
+
+    HYPNOSIS_API_URL: str = pydantic.Field(
+        default="http://localhost:8000",
+        description="URL de la API de hipnosis.",
+    )
+
+    HYPNOSIS_API_KEY: str = pydantic.Field(
+        default="",
+        description="API Key para la API de hipnosis.",
+    )
+
+    HYPNOSIS_WEBHOOK_SIGNATURE_SECRET: str = pydantic.Field(
+        ...,
+        description="Secreto compartido para validar webhooks recibidos de Hypnosis.",
+    )
+
+    HYPNOSIS_WS_URL: str = pydantic.Field(
+        default="ws://localhost:8000",
+        description="URL del WebSocket de la API de hipnosis.",
+    )

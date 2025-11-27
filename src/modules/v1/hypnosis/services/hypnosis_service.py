@@ -1,17 +1,20 @@
 import aiocache
 import typing
+
 from ..repository import HYPNOSIS_REPOSITORY
 from ..schemas import audiorequest_schema
+
+CACHE_TTL_SECONDS = 5  # Keep dashboard time series highly up-to-date
 
 
 @aiocache.cached_stampede(
     lease=2,
-    ttl=60,
+    ttl=CACHE_TTL_SECONDS,
     skip_cache_func=lambda count: count == 0,
 )
 async def _getAllHypnosisRequestsCount(
-    fromDate: str | None,
-    toDate: str | None,
+    fromDate: int | None,
+    toDate: int | None,
 ) -> int:
 
     count = await HYPNOSIS_REPOSITORY.countAudioRequests(
@@ -24,15 +27,17 @@ async def _getAllHypnosisRequestsCount(
 
 @aiocache.cached_stampede(
     lease=2,
-    ttl=60,
+    ttl=CACHE_TTL_SECONDS,
     skip_cache_func=lambda count: count == 0,
 )
-async def _getNotListenedHypnosisRequestsCount(
-    fromDate: str | None,
-    toDate: str | None,
+async def _getHypnosisRequestsCountByListenedStatus(
+    isListened: bool,
+    fromDate: int | None,
+    toDate: int | None,
 ) -> int:
 
-    count = await HYPNOSIS_REPOSITORY.countNotListenedAudioRequests(
+    count = await HYPNOSIS_REPOSITORY.countAudioRequestsByListenedStatus(
+        isListened=isListened,
         fromDate=fromDate,
         toDate=toDate,
     )
@@ -42,11 +47,11 @@ async def _getNotListenedHypnosisRequestsCount(
 
 @aiocache.cached_stampede(
     lease=2,
-    ttl=60,
+    ttl=CACHE_TTL_SECONDS,
 )
 async def _getAllHypnosisRequests(
-    fromDate: str | None,
-    toDate: str | None,
+    fromDate: int | None,
+    toDate: int | None,
 ) -> list[audiorequest_schema.AudioRequestSchema]:
 
     requests = await HYPNOSIS_REPOSITORY.getAllAudioRequests(
@@ -58,7 +63,7 @@ async def _getAllHypnosisRequests(
 
 @aiocache.cached_stampede(
     lease=2,
-    ttl=60,
+    ttl=CACHE_TTL_SECONDS,
 )
 async def _getHypnosisRequestByID(
     requestID: str,
@@ -71,7 +76,7 @@ async def _getHypnosisRequestByID(
 
 @aiocache.cached_stampede(
     lease=2,
-    ttl=60,
+    ttl=CACHE_TTL_SECONDS,
 )
 async def _getHypnosisRequestsByListOfIDs(
     requestIDs: list[str],
@@ -84,20 +89,20 @@ async def _getHypnosisRequestsByListOfIDs(
 
 getAllHypnosisRequestsCount = typing.cast(
     typing.Callable[
-        [str | None, str | None],
+        [int | None, int | None],
         typing.Awaitable[int],
     ],
     _getAllHypnosisRequestsCount,
 )
 
-getNotListenedHypnosisRequestsCount = typing.cast(
-    typing.Callable[[str | None, str | None], typing.Awaitable[int]],
-    _getNotListenedHypnosisRequestsCount,
+getHypnosisRequestsCountByListenedStatus = typing.cast(
+    typing.Callable[[bool, int | None, int | None], typing.Awaitable[int]],
+    _getHypnosisRequestsCountByListenedStatus,
 )
 
 getAllHypnosisRequests = typing.cast(
     typing.Callable[
-        [str | None, str | None],
+        [int | None, int | None],
         typing.Awaitable[list[audiorequest_schema.AudioRequestSchema]],
     ],
     _getAllHypnosisRequests,

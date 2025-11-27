@@ -164,7 +164,7 @@ class AudioRequestSchema(pydantic.BaseModel):
     questions: typing.List[QuestionSchema]
     generatedSections: typing.List[GeneratedSectionSchema]
     generatedText: typing.List[str]
-    userLevel: str
+    userLevel: typing.Optional[str] = None
     userData: UserDataSchema
     version: str
     publicationDate: str
@@ -194,13 +194,18 @@ class AudioRequestCountSchema(pydantic.BaseModel):
         description="El número total de solicitudes de audios de hipnosis.",
     )
 
-    fromDate: typing.Optional[str] = pydantic.Field(
+    fromDate: typing.Optional[int] = pydantic.Field(
         default=None,
-        description="Fecha de inicio para filtrar las solicitudes de audios de hipnosis.",
+        description="Timestamp inicial (segundos Unix) utilizado para el filtrado.",
     )
 
 
-    toDate: typing.Optional[str] = pydantic.Field(
+    toDate: typing.Optional[int] = pydantic.Field(
         default=None,
-        description="Fecha de fin para filtrar las solicitudes de audios de hipnosis.",
+        description="Timestamp final (segundos Unix) utilizado para el filtrado.",
+    )
+
+    isListened: typing.Optional[bool] = pydantic.Field(
+        default=None,
+        description="Indica si el conteo corresponde a solicitudes escuchadas (True) o no escuchadas (False).",
     )

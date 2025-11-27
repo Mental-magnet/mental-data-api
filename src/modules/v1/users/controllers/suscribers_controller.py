@@ -1,8 +1,6 @@
 import typing
 import fastapi
 import logging
-
-from src.modules.v1.shared.utils import dates as dates_utils
 from ..schemas import suscribers_schema
 from ..services import suscribers_service
 
@@ -26,12 +24,15 @@ ROUTER = fastapi.APIRouter(
     },
 )
 async def getSuscribers(
-    isActive: typing.Annotated[bool, fastapi.Query()] = True, # Miembros activos son aquellos cuya membresía es válida al sumar un mes a la fecha actual
-    fromDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena de fecha ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
-    toDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena de fecha ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
+    isActive: typing.Annotated[bool, fastapi.Query()] = True,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> suscribers_schema.SuscribersSchema:
     """
     Obtiene el número de suscriptores según los filtros proporcionados.
+
+    Sin rango de fechas devuelve el total histórico; con fromDate/toDate solo
+    contabiliza suscriptores creados dentro del intervalo.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -42,35 +43,17 @@ async def getSuscribers(
             detail="Los parámetros fromDate y toDate deben proporcionarse juntos o no incluirse.",
         )
     
-    # Verificamos el formato ISO de las fechas si son provistas
-    if fromDate is not None and not dates_utils.verifyISOFormat(fromDate):
+    if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"El parámetro fromDate ({fromDate}) no tiene el formato ISO válido.",
+            detail="El parámetro toDate debe ser mayor o igual que fromDate.",
         )
-
-    if toDate is not None and not dates_utils.verifyISOFormat(toDate):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"El parámetro toDate ({toDate}) no tiene el formato ISO válido.",
-        )
-
-    # toDate debe ser mayor o igual a fromDate
-    # comparamos usando timestamp para ser más precisos
-    if fromDate is not None and toDate is not None:
-        fromDateTimestamp = dates_utils.convertISOtoTimestamp(fromDate)
-        toDateTimestamp = dates_utils.convertISOtoTimestamp(toDate)
-
-        if toDateTimestamp < fromDateTimestamp:
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail="El parámetro toDate debe ser mayor o igual que fromDate.",
-            )
         
     LOGGER.info(
         f"Obteniendo suscriptores con isActive={isActive}, fromDate={fromDate}, toDate={toDate}"
     )    
 
+    # Si se entrega un rango el conteo se limita a suscriptores generados dentro de esas fechas.
     count = await suscribers_service.getAllSuscribersCount(
         isActive=isActive,
         fromDate=fromDate,

@@ -1,12 +1,7 @@
 import typing
 import fastapi
-import logging
-
-from src.modules.v1.shared.utils import dates as dates_utils
 from ..schemas import user_schema
 from ..services import users_service
-
-LOGGER = logging.getLogger("uvicorn").getChild("v1.users.controllers.users")
 
 
 ROUTER = fastapi.APIRouter()
@@ -25,14 +20,29 @@ ROUTER = fastapi.APIRouter()
     },
 )
 async def getUsersWithAURA(
-    isActive: typing.Annotated[bool, fastapi.Query()] = True,
-    fromDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
-    toDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
+    subscriberActive: typing.Annotated[
+        typing.Optional[bool],
+        fastapi.Query(
+            description="Filtra por suscriptores activos (True) o inactivos (False)."
+        ),
+    ] = None,
+    auraEnabled: typing.Annotated[
+        bool,
+        fastapi.Query(
+            description="True cuenta usuarios con aura habilitada, False los que no.",
+        ),
+    ] = True,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> user_schema.UserCountSchema:
     """
     Obtiene el número de usuarios con AURA habilitado según los filtros proporcionados.
 
-    Al dar fechas, se obtiene los usuarios con aura que se han creado en ese rango de fechas.
+    Sin rango de fechas devuelve el total histórico de usuarios con aura.
+    Al dar fechas, se obtiene los usuarios con aura que se han creado en ese intervalo.
+    El parámetro de query `auraEnabled` define si se cuentan usuarios con aura habilitada
+    o deshabilitada. Cuando subscriberActive es None se consideran todos los usuarios; True restringe a
+    suscriptores activos y False a suscriptores inactivos según la lógica del dashboard.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -43,44 +53,27 @@ async def getUsersWithAURA(
             detail="fromDate y toDate deben proporcionarse juntas o no enviarse.",
         )
     
-    # Verificamos el formato ISO de las fechas si son provistas
-    if fromDate is not None and not dates_utils.verifyISOFormat(fromDate):
+    if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"La fecha fromDate proporcionada ({fromDate}) no tiene formato ISO.",
+            detail="toDate debe ser mayor o igual que fromDate.",
         )
 
-    if toDate is not None and not dates_utils.verifyISOFormat(toDate):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"La fecha toDate proporcionada ({toDate}) no tiene formato ISO.",
-        )
-
-    # toDate debe ser mayor o igual a fromDate
-    # comparamos usando timestamp para ser más precisos
-    if fromDate is not None and toDate is not None:
-        fromDateTimestamp = dates_utils.convertISOtoTimestamp(fromDate)
-        toDateTimestamp = dates_utils.convertISOtoTimestamp(toDate)
-
-        if toDateTimestamp < fromDateTimestamp:
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail="toDate debe ser mayor o igual que fromDate.",
-            )
-
+    # Si se define un rango de fechas el conteo solo incluye usuarios creados dentro de ese intervalo.
     count = await users_service.getUsersWithAURACount(
-        isActive=isActive,
+        isActive=auraEnabled,
         fromDate=fromDate,
         toDate=toDate,
+        subscriberActive=subscriberActive,
     )
 
-    return user_schema.UserCountSchema(count=count , fromDate=fromDate, toDate=toDate)
+    return user_schema.UserCountSchema(count=count, fromDate=fromDate, toDate=toDate)
 
 
 
 @ROUTER.get(
-    "/count/without-hypnosis-request",
-    summary="Obtener conteo de usuarios sin solicitud de hipnosis",
+    "/count/user-with-hypnosis-request",
+    summary="Obtener conteo de usuarios por solicitudes de hipnosis",
     response_class=fastapi.responses.JSONResponse,
     response_model=user_schema.UserCountSchema,
     responses={
@@ -89,12 +82,27 @@ async def getUsersWithAURA(
     500: {"description": "Error interno del servidor"},
     },
 )
-async def getUsersWithoutHypnosisRequest(
-    fromDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
-    toDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
+async def getUserHypnosisRequestCount(
+    subscriberActive: typing.Annotated[
+        typing.Optional[bool],
+        fastapi.Query(
+            description="Filtra por suscriptores activos (True) o inactivos (False)."
+        ),
+    ] = None,
+    hasRequest: typing.Annotated[
+        bool,
+        fastapi.Query(
+            description="True cuenta usuarios con al menos una solicitud, False los que no.",
+        ),
+    ] = True,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
 ) -> user_schema.UserCountSchema:
     """
-    Obtiene el número de usuarios que no han solicitado hipnosis según los filtros proporcionados.
+    Sin rango de fechas retorna el histórico completo.
+    Si `hasRequest` es True cuenta usuarios con al menos una solicitud en el rango.
+    Si es False cuenta los que no generaron ninguna. subscriberActive sigue la misma lógica del endpoint
+    de aura para filtrar por estado de suscripción.
     """
 
     # Ambas fechas deben ser provistas juntas o ninguna
@@ -104,35 +112,118 @@ async def getUsersWithoutHypnosisRequest(
             detail="fromDate y toDate deben proporcionarse juntas o no enviarse.",
         )
 
-    # Verificamos el formato ISO de las fechas si son provistas
-    if fromDate is not None and not dates_utils.verifyISOFormat(fromDate):
+    if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"La fecha fromDate proporcionada ({fromDate}) no tiene formato ISO.",
+            detail="toDate debe ser mayor o igual que fromDate.",
         )
 
-    if toDate is not None and not dates_utils.verifyISOFormat(toDate):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"La fecha toDate proporcionada ({toDate}) no tiene formato ISO.",
-        )
-
-    if fromDate is not None and toDate is not None:
-        fromDateTimestamp = dates_utils.convertISOtoTimestamp(fromDate)
-        toDateTimestamp = dates_utils.convertISOtoTimestamp(toDate)
-
-        if toDateTimestamp < fromDateTimestamp:
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail="toDate debe ser mayor o igual que fromDate.",
-            )
-
-    count = await users_service.getUsersWithoutHypnosisRequestCount(
+    # Con rango de fechas solo se consideran usuarios cuya primera solicitud cae dentro del intervalo.
+    count = await users_service.getUsersByHypnosisRequestCount(
+        isActive=hasRequest,
         fromDate=fromDate,
         toDate=toDate,
+        subscriberActive=subscriberActive,
     )
 
     return user_schema.UserCountSchema(count=count, fromDate=fromDate, toDate=toDate)
+
+
+@ROUTER.get(
+    "/portals",
+    summary="Listar portales disponibles",
+    response_class=fastapi.responses.JSONResponse,
+    response_model=user_schema.UserPortalListSchema,
+    responses={
+    200: {"description": "Respuesta exitosa", "model": user_schema.UserPortalListSchema},
+    500: {"description": "Error interno del servidor"},
+    },
+)
+async def listUserPortals() -> user_schema.UserPortalListSchema:
+    portals = await users_service.getUserPortals()
+    return user_schema.UserPortalListSchema(portals=portals)
+
+
+@ROUTER.get(
+    "/distribution/general",
+    summary="Obtener distribución general de usuarios",
+    response_class=fastapi.responses.JSONResponse,
+    response_model=user_schema.UserGeneralDistributionSchema,
+    responses={
+    200: {"description": "Respuesta exitosa", "model": user_schema.UserGeneralDistributionSchema},
+    400: {"description": "Solicitud inválida"},
+    500: {"description": "Error interno del servidor"},
+    },
+)
+async def getGeneralUserDistribution(
+    subscriberActive: typing.Annotated[
+        typing.Optional[bool],
+        fastapi.Query(description="Filtra por suscriptores activos (True) o inactivos (False)."),
+    ] = None,
+    hasHypnosisRequest: typing.Annotated[
+        typing.Optional[bool],
+        fastapi.Query(description="True filtra usuarios con al menos una solicitud de hipnosis."),
+    ] = None,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    hypnosisFromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+    ] = None,
+    hypnosisToDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+    ] = None,
+) -> user_schema.UserGeneralDistributionSchema:
+    """
+    Entrega la distribución general de usuarios por idioma, género y buckets de edad.
+    Sin fechas usa toda la data disponible; con fromDate/toDate solo considera usuarios creados en el intervalo.
+    Permite filtrar por estado de suscripción y solicitudes de hipnosis. hypnosisFromDate/hypnosisToDate
+    definen el rango de fechas en el que se buscan solicitudes de hipnosis para el filtro.
+    """
+
+    if (fromDate is None) ^ (toDate is None):
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="fromDate y toDate deben proporcionarse juntas o no enviarse.",
+        )
+
+    if fromDate is not None and toDate is not None and toDate < fromDate:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="toDate debe ser mayor o igual que fromDate.",
+        )
+
+    if (hypnosisFromDate is None) ^ (hypnosisToDate is None):
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="hypnosisFromDate y hypnosisToDate deben proporcionarse juntas o no enviarse.",
+        )
+
+    if hypnosisFromDate is not None and hypnosisToDate is not None and hypnosisToDate < hypnosisFromDate:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="hypnosisToDate debe ser mayor o igual que hypnosisFromDate.",
+        )
+
+    if (hypnosisFromDate is not None or hypnosisToDate is not None) and hasHypnosisRequest is None:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="Debe indicar hasHypnosisRequest (True o False) para usar hypnosisFromDate/hypnosisToDate.",
+        )
+
+    # Con un rango definido la distribución considera únicamente usuarios creados en ese periodo.
+    # hypnosisFromDate/hypnosisToDate acotan las solicitudes de hipnosis utilizadas en el filtro.
+    distribution = await users_service.getGeneralUserDistribution(
+        subscriberActive=subscriberActive,
+        hasHypnosisRequest=hasHypnosisRequest,
+        fromDate=fromDate,
+        toDate=toDate,
+        hypnosisFromDate=hypnosisFromDate,
+        hypnosisToDate=hypnosisToDate,
+    )
+
+    return distribution
 
 
 @ROUTER.get(
@@ -148,11 +239,30 @@ async def getUsersWithoutHypnosisRequest(
 )
 async def getUserPortalDistribution(
     portal: typing.Annotated[str, fastapi.Query(description="Portal (userLevel) para el cual se calculará la distribución")],
-    fromDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
-    toDate: typing.Annotated[typing.Optional[str], fastapi.Query(description="Formato: cadena ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)")] = None,
+    subscriberActive: typing.Annotated[
+        typing.Optional[bool],
+        fastapi.Query(description="Filtra por suscriptores activos (True) o inactivos (False)."),
+    ] = None,
+    hasHypnosisRequest: typing.Annotated[
+        typing.Optional[bool],
+        fastapi.Query(description="True filtra usuarios con solicitudes de hipnosis"),
+    ] = None,
+    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    hypnosisFromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+    ] = None,
+    hypnosisToDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+    ] = None,
 ) -> user_schema.UserPortalDistributionSchema:
     """
-    Obtiene la distribución de usuarios de un portal específico, agrupando por género y rangos de edad.
+    Obtiene la distribución de usuarios de un portal específico, agrupada por idioma y género.
+    Sin fechas usa todos los usuarios asignados al portal; con fromDate/toDate restringe a los creados en el intervalo.
+    Solo se incluyen usuarios con la propiedad userLevel definida; es la única manera de contabilizar un portal.
+    hypnosisFromDate/hypnosisToDate delimitan las solicitudes de hipnosis consideradas en el filtro.
     """
 
     if not portal:
@@ -167,32 +277,42 @@ async def getUserPortalDistribution(
             detail="fromDate y toDate deben proporcionarse juntas o no enviarse.",
         )
 
-    if fromDate is not None and not dates_utils.verifyISOFormat(fromDate):
+    if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"La fecha fromDate proporcionada ({fromDate}) no tiene formato ISO.",
+            detail="toDate debe ser mayor o igual que fromDate.",
         )
 
-    if toDate is not None and not dates_utils.verifyISOFormat(toDate):
+    if (hypnosisFromDate is None) ^ (hypnosisToDate is None):
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"La fecha toDate proporcionada ({toDate}) no tiene formato ISO.",
+            detail="hypnosisFromDate y hypnosisToDate deben proporcionarse juntas o no enviarse.",
         )
 
-    if fromDate is not None and toDate is not None:
-        fromDateTimestamp = dates_utils.convertISOtoTimestamp(fromDate)
-        toDateTimestamp = dates_utils.convertISOtoTimestamp(toDate)
+    if hypnosisFromDate is not None and hypnosisToDate is not None and hypnosisToDate < hypnosisFromDate:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="hypnosisToDate debe ser mayor o igual que hypnosisFromDate.",
+        )
 
-        if toDateTimestamp < fromDateTimestamp:
-            raise fastapi.HTTPException(
-                status_code=400,
-                detail="toDate debe ser mayor o igual que fromDate.",
-            )
+    if (hypnosisFromDate is not None or hypnosisToDate is not None) and hasHypnosisRequest is None:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail="Debe indicar hasHypnosisRequest (True o False) para usar hypnosisFromDate/hypnosisToDate.",
+        )
 
+    # Al limitar por fechas solo se incluyen usuarios del portal creados dentro del intervalo indicado.
+    # hypnosisFromDate/hypnosisToDate acotan las solicitudes de hipnosis consideradas al filtrar.
     distribution = await users_service.getUserPortalDistribution(
         portal=portal,
         fromDate=fromDate,
         toDate=toDate,
+        subscriberActive=subscriberActive,
+        hasHypnosisRequest=hasHypnosisRequest,
+        hypnosisFromDate=hypnosisFromDate,
+        hypnosisToDate=hypnosisToDate,
     )
 
     return distribution
+
+
