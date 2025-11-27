@@ -49,8 +49,8 @@ async def getAudioRequestsCount(
 
     # Al suministrar un rango se limita el conteo a solicitudes creadas dentro de esas fechas.
     count : int = await hypnosis_service.getAllHypnosisRequestsCount(
-        fromDate=fromDate,
-        toDate=toDate,
+        fromDate,
+        toDate,
     )
 
     return audiorequest_schema.AudioRequestCountSchema(count=count , fromDate=fromDate, toDate=toDate)
@@ -99,9 +99,9 @@ async def getAudioRequestsCountByListenedStatus(
 
     # Cuando existe un rango de fechas solo se contabilizan solicitudes creadas dentro del intervalo.
     count: int = await hypnosis_service.getHypnosisRequestsCountByListenedStatus(
-        isListened=isListened,
-        fromDate=fromDate,
-        toDate=toDate,
+        isListened,
+        fromDate,
+        toDate,
     )
 
     return audiorequest_schema.AudioRequestCountSchema(
