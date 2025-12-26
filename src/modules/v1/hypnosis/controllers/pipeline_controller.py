@@ -92,7 +92,8 @@ async def receiveLoggingEventWebhook(
     expectedSignature = (
         ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_WEBHOOK_SIGNATURE_SECRET
     )
-    clientHost = request.client.host
+    client = request.client
+    clientHost = client.host if client else "unknown"
     if not expectedSignature:
         webhookLogger.error(
             "Webhook rejected: missing expected signature secret | client=%s | receivedSignature=%s",

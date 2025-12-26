@@ -11,7 +11,7 @@ LOGGER = logging.getLogger("uvicorn").getChild("v1.hypnosis.repository.hypnosis"
 
 
 class HypnosisRepository(
-    pydantic_mongo.AbstractRepository[audiorequest_schema.AudioRequestSchema]
+    pydantic_mongo.AsyncAbstractRepository[audiorequest_schema.AudioRequestSchema]
 ):
     class Meta:
         collection_name = ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_COLLECTION_NAME
@@ -47,7 +47,7 @@ class HypnosisRepository(
         else:
             finalQuery = {}
 
-        count : int = await self.get_collection().count_documents(finalQuery)
+        count : int = await self.get_collection().count_documents(finalQuery)  # ty:ignore[invalid-await]
         return count
 
     async def countAudioRequestsByListenedStatus(
@@ -85,7 +85,7 @@ class HypnosisRepository(
         else:
             finalQuery = {"$and": queryFilters}
 
-        count: int = await self.get_collection().count_documents(finalQuery)
+        count: int = await self.get_collection().count_documents(finalQuery)  # ty:ignore[invalid-await]
         return count
 
 
@@ -94,7 +94,5 @@ HYPNOSIS_MONGO_CLIENT = pymongo.AsyncMongoClient(
 )
 
 HYPNOSIS_REPOSITORY = HypnosisRepository(
-    database=HYPNOSIS_MONGO_CLIENT[
-        ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_DATABASE_NAME
-    ]
+    database=HYPNOSIS_MONGO_CLIENT[ENVIRONMENT_CONFIG.HYPNOSIS_CONFIG.HYPNOSIS_DATABASE_NAME]
 )

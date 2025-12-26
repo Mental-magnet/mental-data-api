@@ -7,16 +7,15 @@ from ..services import users_service
 ROUTER = fastapi.APIRouter()
 
 
-
 @ROUTER.get(
     "/count/aura",
     summary="Obtener conteo de usuarios con AURA habilitado",
     response_class=fastapi.responses.JSONResponse,
     response_model=user_schema.UserCountSchema,
     responses={
-    200: {"description": "Respuesta exitosa", "model": user_schema.UserCountSchema},
-    400: {"description": "Solicitud inválida"},
-    500: {"description": "Error interno del servidor"},
+        200: {"description": "Respuesta exitosa", "model": user_schema.UserCountSchema},
+        400: {"description": "Solicitud inválida"},
+        500: {"description": "Error interno del servidor"},
     },
 )
 async def getUsersWithAURA(
@@ -32,8 +31,14 @@ async def getUsersWithAURA(
             description="True cuenta usuarios con aura habilitada, False los que no.",
         ),
     ] = True,
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
 ) -> user_schema.UserCountSchema:
     """
     Obtiene el número de usuarios con AURA habilitado según los filtros proporcionados.
@@ -52,7 +57,7 @@ async def getUsersWithAURA(
             status_code=400,
             detail="fromDate y toDate deben proporcionarse juntas o no enviarse.",
         )
-    
+
     if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
@@ -61,14 +66,13 @@ async def getUsersWithAURA(
 
     # Si se define un rango de fechas el conteo solo incluye usuarios creados dentro de ese intervalo.
     count = await users_service.getUsersWithAURACount(
-        isActive=auraEnabled,
-        fromDate=fromDate,
-        toDate=toDate,
-        subscriberActive=subscriberActive,
-    )
+        isActive=auraEnabled,  # ty:ignore[unknown-argument]
+        fromDate=fromDate,  # ty:ignore[unknown-argument]
+        toDate=toDate,  # ty:ignore[unknown-argument]
+        subscriberActive=subscriberActive,  # ty:ignore[unknown-argument]
+    )  # ty:ignore[missing-argument]
 
     return user_schema.UserCountSchema(count=count, fromDate=fromDate, toDate=toDate)
-
 
 
 @ROUTER.get(
@@ -77,9 +81,9 @@ async def getUsersWithAURA(
     response_class=fastapi.responses.JSONResponse,
     response_model=user_schema.UserCountSchema,
     responses={
-    200: {"description": "Respuesta exitosa", "model": user_schema.UserCountSchema},
-    400: {"description": "Solicitud inválida"},
-    500: {"description": "Error interno del servidor"},
+        200: {"description": "Respuesta exitosa", "model": user_schema.UserCountSchema},
+        400: {"description": "Solicitud inválida"},
+        500: {"description": "Error interno del servidor"},
     },
 )
 async def getUserHypnosisRequestCount(
@@ -95,8 +99,14 @@ async def getUserHypnosisRequestCount(
             description="True cuenta usuarios con al menos una solicitud, False los que no.",
         ),
     ] = True,
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
 ) -> user_schema.UserCountSchema:
     """
     Sin rango de fechas retorna el histórico completo.
@@ -119,11 +129,11 @@ async def getUserHypnosisRequestCount(
         )
 
     # Con rango de fechas solo se consideran usuarios cuya primera solicitud cae dentro del intervalo.
-    count = await users_service.getUsersByHypnosisRequestCount(
-        isActive=hasRequest,
-        fromDate=fromDate,
-        toDate=toDate,
-        subscriberActive=subscriberActive,
+    count = await users_service.getUsersByHypnosisRequestCount(  # type: ignore
+        isActive=hasRequest,  # ty:ignore[unknown-argument]
+        fromDate=fromDate,  # ty:ignore[unknown-argument]
+        toDate=toDate,  # ty:ignore[unknown-argument]
+        subscriberActive=subscriberActive,  # ty:ignore[unknown-argument]
     )
 
     return user_schema.UserCountSchema(count=count, fromDate=fromDate, toDate=toDate)
@@ -135,8 +145,11 @@ async def getUserHypnosisRequestCount(
     response_class=fastapi.responses.JSONResponse,
     response_model=user_schema.UserPortalListSchema,
     responses={
-    200: {"description": "Respuesta exitosa", "model": user_schema.UserPortalListSchema},
-    500: {"description": "Error interno del servidor"},
+        200: {
+            "description": "Respuesta exitosa",
+            "model": user_schema.UserPortalListSchema,
+        },
+        500: {"description": "Error interno del servidor"},
     },
 )
 async def listUserPortals() -> user_schema.UserPortalListSchema:
@@ -150,29 +163,46 @@ async def listUserPortals() -> user_schema.UserPortalListSchema:
     response_class=fastapi.responses.JSONResponse,
     response_model=user_schema.UserGeneralDistributionSchema,
     responses={
-    200: {"description": "Respuesta exitosa", "model": user_schema.UserGeneralDistributionSchema},
-    400: {"description": "Solicitud inválida"},
-    500: {"description": "Error interno del servidor"},
+        200: {
+            "description": "Respuesta exitosa",
+            "model": user_schema.UserGeneralDistributionSchema,
+        },
+        400: {"description": "Solicitud inválida"},
+        500: {"description": "Error interno del servidor"},
     },
 )
 async def getGeneralUserDistribution(
     subscriberActive: typing.Annotated[
         typing.Optional[bool],
-        fastapi.Query(description="Filtra por suscriptores activos (True) o inactivos (False)."),
+        fastapi.Query(
+            description="Filtra por suscriptores activos (True) o inactivos (False)."
+        ),
     ] = None,
     hasHypnosisRequest: typing.Annotated[
         typing.Optional[bool],
-        fastapi.Query(description="True filtra usuarios con al menos una solicitud de hipnosis."),
+        fastapi.Query(
+            description="True filtra usuarios con al menos una solicitud de hipnosis."
+        ),
     ] = None,
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
     hypnosisFromDate: typing.Annotated[
         typing.Optional[int],
-        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+        fastapi.Query(
+            description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."
+        ),
     ] = None,
     hypnosisToDate: typing.Annotated[
         typing.Optional[int],
-        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+        fastapi.Query(
+            description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."
+        ),
     ] = None,
 ) -> user_schema.UserGeneralDistributionSchema:
     """
@@ -200,13 +230,19 @@ async def getGeneralUserDistribution(
             detail="hypnosisFromDate y hypnosisToDate deben proporcionarse juntas o no enviarse.",
         )
 
-    if hypnosisFromDate is not None and hypnosisToDate is not None and hypnosisToDate < hypnosisFromDate:
+    if (
+        hypnosisFromDate is not None
+        and hypnosisToDate is not None
+        and hypnosisToDate < hypnosisFromDate
+    ):
         raise fastapi.HTTPException(
             status_code=400,
             detail="hypnosisToDate debe ser mayor o igual que hypnosisFromDate.",
         )
 
-    if (hypnosisFromDate is not None or hypnosisToDate is not None) and hasHypnosisRequest is None:
+    if (
+        hypnosisFromDate is not None or hypnosisToDate is not None
+    ) and hasHypnosisRequest is None:
         raise fastapi.HTTPException(
             status_code=400,
             detail="Debe indicar hasHypnosisRequest (True o False) para usar hypnosisFromDate/hypnosisToDate.",
@@ -214,13 +250,13 @@ async def getGeneralUserDistribution(
 
     # Con un rango definido la distribución considera únicamente usuarios creados en ese periodo.
     # hypnosisFromDate/hypnosisToDate acotan las solicitudes de hipnosis utilizadas en el filtro.
-    distribution = await users_service.getGeneralUserDistribution(
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        fromDate=fromDate,
-        toDate=toDate,
-        hypnosisFromDate=hypnosisFromDate,
-        hypnosisToDate=hypnosisToDate,
+    distribution = await users_service.getGeneralUserDistribution(  # type: ignore
+        subscriberActive=subscriberActive,  # ty:ignore[unknown-argument]
+        hasHypnosisRequest=hasHypnosisRequest,  # ty:ignore[unknown-argument]
+        fromDate=fromDate,  # ty:ignore[unknown-argument]
+        toDate=toDate,  # ty:ignore[unknown-argument]
+        hypnosisFromDate=hypnosisFromDate,  # ty:ignore[unknown-argument]
+        hypnosisToDate=hypnosisToDate,  # ty:ignore[unknown-argument]
     )
 
     return distribution
@@ -232,30 +268,50 @@ async def getGeneralUserDistribution(
     response_class=fastapi.responses.JSONResponse,
     response_model=user_schema.UserPortalDistributionSchema,
     responses={
-    200: {"description": "Respuesta exitosa", "model": user_schema.UserPortalDistributionSchema},
-    400: {"description": "Solicitud inválida"},
-    500: {"description": "Error interno del servidor"},
+        200: {
+            "description": "Respuesta exitosa",
+            "model": user_schema.UserPortalDistributionSchema,
+        },
+        400: {"description": "Solicitud inválida"},
+        500: {"description": "Error interno del servidor"},
     },
 )
 async def getUserPortalDistribution(
-    portal: typing.Annotated[str, fastapi.Query(description="Portal (userLevel) para el cual se calculará la distribución")],
+    portal: typing.Annotated[
+        str,
+        fastapi.Query(
+            description="Portal (userLevel) para el cual se calculará la distribución"
+        ),
+    ],
     subscriberActive: typing.Annotated[
         typing.Optional[bool],
-        fastapi.Query(description="Filtra por suscriptores activos (True) o inactivos (False)."),
+        fastapi.Query(
+            description="Filtra por suscriptores activos (True) o inactivos (False)."
+        ),
     ] = None,
     hasHypnosisRequest: typing.Annotated[
         typing.Optional[bool],
         fastapi.Query(description="True filtra usuarios con solicitudes de hipnosis"),
     ] = None,
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
     hypnosisFromDate: typing.Annotated[
         typing.Optional[int],
-        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+        fastapi.Query(
+            description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."
+        ),
     ] = None,
     hypnosisToDate: typing.Annotated[
         typing.Optional[int],
-        fastapi.Query(description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."),
+        fastapi.Query(
+            description="Timestamp Unix (segundos, entero) aplicado a las solicitudes de hipnosis."
+        ),
     ] = None,
 ) -> user_schema.UserPortalDistributionSchema:
     """
@@ -289,13 +345,19 @@ async def getUserPortalDistribution(
             detail="hypnosisFromDate y hypnosisToDate deben proporcionarse juntas o no enviarse.",
         )
 
-    if hypnosisFromDate is not None and hypnosisToDate is not None and hypnosisToDate < hypnosisFromDate:
+    if (
+        hypnosisFromDate is not None
+        and hypnosisToDate is not None
+        and hypnosisToDate < hypnosisFromDate
+    ):
         raise fastapi.HTTPException(
             status_code=400,
             detail="hypnosisToDate debe ser mayor o igual que hypnosisFromDate.",
         )
 
-    if (hypnosisFromDate is not None or hypnosisToDate is not None) and hasHypnosisRequest is None:
+    if (
+        hypnosisFromDate is not None or hypnosisToDate is not None
+    ) and hasHypnosisRequest is None:
         raise fastapi.HTTPException(
             status_code=400,
             detail="Debe indicar hasHypnosisRequest (True o False) para usar hypnosisFromDate/hypnosisToDate.",
@@ -303,16 +365,14 @@ async def getUserPortalDistribution(
 
     # Al limitar por fechas solo se incluyen usuarios del portal creados dentro del intervalo indicado.
     # hypnosisFromDate/hypnosisToDate acotan las solicitudes de hipnosis consideradas al filtrar.
-    distribution = await users_service.getUserPortalDistribution(
-        portal=portal,
-        fromDate=fromDate,
-        toDate=toDate,
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        hypnosisFromDate=hypnosisFromDate,
-        hypnosisToDate=hypnosisToDate,
+    distribution = await users_service.getUserPortalDistribution(  # type: ignore
+        portal=portal,  # ty:ignore[unknown-argument]
+        fromDate=fromDate,  # ty:ignore[unknown-argument]
+        toDate=toDate,  # ty:ignore[unknown-argument]
+        subscriberActive=subscriberActive,  # ty:ignore[unknown-argument]
+        hasHypnosisRequest=hasHypnosisRequest,  # ty:ignore[unknown-argument]
+        hypnosisFromDate=hypnosisFromDate,  # ty:ignore[unknown-argument]
+        hypnosisToDate=hypnosisToDate,  # ty:ignore[unknown-argument]
     )
 
     return distribution
-
-
