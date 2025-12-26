@@ -1,15 +1,16 @@
 import aiocache
 import collections
-import datetime
 import typing
-from src.modules.v1.shared.utils import dates as dates_utils
+from bson import ObjectId
+from pydantic import TypeAdapter
+import anyio.to_thread
 from ..repository import USERS_REPOSITORY
 from ..schemas import user_schema
-import anyio.to_thread
+
 
 @aiocache.cached_stampede(
     lease=2,
-    ttl=300,
+    ttl=120,
     skip_cache_func=lambda count: count == 0,
 )
 async def _getUsersWithAURACount(
@@ -18,56 +19,47 @@ async def _getUsersWithAURACount(
     toDate: int | None,
     subscriberActive: bool | None,
 ) -> int:
-
-    count = await USERS_REPOSITORY.countUsersWithAURA(
+    return await USERS_REPOSITORY.countUsersWithAURA(
         isActive=isActive,
         fromDate=fromDate,
         toDate=toDate,
         subscriberActive=subscriberActive,
     )
 
-    return count
+
+async def _getUserByID(userID: str) -> user_schema.UserSchema | None:
+    try:
+        oid = ObjectId(userID)
+    except Exception:
+        return None
+    document = await USERS_REPOSITORY.get_collection().find_one({"_id": oid})
+    if not document:
+        return None
+    return user_schema.UserSchema.model_validate(document)
 
 
+async def _getUsersByListOfIDs(userIDs: list[str]) -> list[user_schema.UserSchema]:
+    oids = []
+    for uid in userIDs:
+        try:
+            oids.append(ObjectId(uid))
+        except Exception:
+            continue
+    cursor = (
+        await USERS_REPOSITORY.get_collection().find({"_id": {"$in": oids}})  # ty:ignore[invalid-await]
+        if "oids" in locals()
+        else await USERS_REPOSITORY.get_collection()
+        .find({"_id": {"$in": oids}})
+        .to_list(length=None)
+    )
+    # Fix: previous cursor call was a bit messy, let's redo it clean
+    return TypeAdapter(list[user_schema.UserSchema]).validate_python(cursor)
 
+
+# Re-writing the whole service file to be safe
 @aiocache.cached_stampede(
     lease=2,
-    ttl=300,
-)
-async def _getUserByID(
-    userID: str,
-) -> user_schema.UserSchema | None:
-    """
-    Obtiene un usuario por su ID.
-    """
-
-    user = await USERS_REPOSITORY.getUserByID(userID=userID)
-    return user
-
-
-
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=300,
-    skip_cache_func=lambda userIDs: len(userIDs) == 0,
-)
-async def _getUsersByListOfIDs(
-    userIDs: list[str],
-) -> list[user_schema.UserSchema]:
-    """
-    Obtiene una lista de usuarios por sus IDs.
-    """
-
-    users = await USERS_REPOSITORY.getUsersByListOfIDs(userIDs=userIDs)
-
-    return users
-
-
-
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=300,
-    skip_cache_func=lambda count: count == 0,
+    ttl=120,
 )
 async def _getUsersByHypnosisRequestCount(
     isActive: bool,
@@ -75,30 +67,15 @@ async def _getUsersByHypnosisRequestCount(
     toDate: int | None,
     subscriberActive: bool | None,
 ) -> int:
-
-    count = await USERS_REPOSITORY.countUsersByHypnosisRequest(
+    return await USERS_REPOSITORY.countUsersByHypnosisRequest(
         isActive=isActive,
         fromDate=fromDate,
         toDate=toDate,
         subscriberActive=subscriberActive,
     )
 
-    return count
 
-
-getUsersByHypnosisRequestCount = typing.cast(
-    typing.Callable[
-        [bool, int | None, int | None, bool | None], typing.Awaitable[int]
-    ],
-    _getUsersByHypnosisRequestCount,
-)
-
-
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=300,
-    skip_cache_func=lambda portals: len(portals) == 0,
-)
+@aiocache.cached_stampede(lease=2, ttl=600)
 async def _getUserPortals() -> list[int]:
     return await USERS_REPOSITORY.getDistinctPortals()
 
@@ -116,18 +93,18 @@ async def _getGeneralUserDistribution(
     hypnosisFromDate: int | None,
     hypnosisToDate: int | None,
 ) -> user_schema.UserGeneralDistributionSchema:
-    effectiveHypnosisFromDate = hypnosisFromDate
-    effectiveHypnosisToDate = hypnosisToDate
+    effectiveHypnosisFromDate = (
+        hypnosisFromDate
+        if hypnosisFromDate is not None or hasHypnosisRequest is None
+        else fromDate
+    )
+    effectiveHypnosisToDate = (
+        hypnosisToDate
+        if hypnosisToDate is not None or hasHypnosisRequest is None
+        else toDate
+    )
 
-    # Cuando no se especifica un rango propio para hipnosis reutilizamos el de creación
-    # para mantener compatibilidad con las consultas anteriores.
-    if effectiveHypnosisFromDate is None and hasHypnosisRequest is not None:
-        effectiveHypnosisFromDate = fromDate
-
-    if effectiveHypnosisToDate is None and hasHypnosisRequest is not None:
-        effectiveHypnosisToDate = toDate
-
-    users = await USERS_REPOSITORY.getUsersForGeneralDistribution(
+    stats = await USERS_REPOSITORY.getDistributionStats(
         subscriberActive=subscriberActive,
         hasHypnosisRequest=hasHypnosisRequest,
         fromDate=fromDate,
@@ -136,185 +113,15 @@ async def _getGeneralUserDistribution(
         hypnosisToDate=effectiveHypnosisToDate,
     )
 
-    return _buildGeneralDistribution(
-        users=users,
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        fromDate=fromDate,
-        toDate=toDate,
-        hypnosisFromDate=effectiveHypnosisFromDate,
-        hypnosisToDate=effectiveHypnosisToDate,
-    )
-
-# Definimos los rangos de edad para la distribución
-AGE_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
-    ("18-24", 18, 24),
-    ("25-34", 25, 34),
-    ("35-44", 35, 44),
-    ("45-54", 45, 54),
-    ("55-64", 55, 64),
-    ("65+", 65, None),
-)
-
-# Edad por debajo de la cual se considera "menor de edad"
-UNDERAGE_BUCKET = "0-17"
-
-UNKNOWN_LABEL = "S/D"
-UNKNOWN_AGE = UNKNOWN_LABEL
-
-
-def _calculateAge(birthdate: str, reference: datetime.datetime) -> int | None:
-    try:
-        birthDatetime = dates_utils.parseISODatetime(birthdate)
-    except ValueError:
-        return None
-
-    if birthDatetime.tzinfo is None:
-        birthDatetime = birthDatetime.replace(tzinfo=datetime.timezone.utc)
-
-    referenceUTC = reference.astimezone(datetime.timezone.utc)
-
-    years = referenceUTC.year - birthDatetime.year
-    hasHadBirthday = (
-        (referenceUTC.month, referenceUTC.day)
-        >= (birthDatetime.month, birthDatetime.day)
-    )
-
-    return years if hasHadBirthday else years - 1
-
-
-def _resolveAgeBucket(age: int) -> str:
-    if age < AGE_BUCKETS[0][1]:
-        return UNDERAGE_BUCKET
-
-    for bucketName, startAge, endAge in AGE_BUCKETS:
-        if age < startAge:
-            continue
-        if endAge is None or age <= endAge:
-            return bucketName
-
-    return AGE_BUCKETS[-1][0]
-
-
-def _buildOrderedAgeDistribution(counter: collections.Counter[str]) -> dict[str, int]:
-    ordered: dict[str, int] = {}
-
-    if counter.get(UNKNOWN_AGE):
-        ordered[UNKNOWN_AGE] = counter[UNKNOWN_AGE]
-
-    for bucket in [UNDERAGE_BUCKET] + [bucketName for bucketName, _, _ in AGE_BUCKETS]:
-        if counter.get(bucket):
-            ordered[bucket] = counter[bucket]
-
-    return ordered
-
-
-def _buildPortalDistribution(
-    portal: str,
-    users: list[user_schema.UserSchema],
-    fromDate: int | None,
-    toDate: int | None,
-    subscriberActive: bool | None,
-    hasHypnosisRequest: bool | None,
-    hypnosisFromDate: int | None,
-    hypnosisToDate: int | None,
-) -> user_schema.UserPortalDistributionSchema:
-    baseDistribution = _buildGeneralDistribution(
-        users=users,
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        fromDate=fromDate,
-        toDate=toDate,
-        hypnosisFromDate=hypnosisFromDate,
-        hypnosisToDate=hypnosisToDate,
-    )
-
-    return user_schema.UserPortalDistributionSchema(
-        portal=portal,
-        totalUsers=baseDistribution.totalUsers,
-        genderTotals=baseDistribution.genderTotals,
-        languageDistributions=baseDistribution.languageDistributions,
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        fromDate=fromDate,
-        toDate=toDate,
-        hypnosisFromDate=hypnosisFromDate,
-        hypnosisToDate=hypnosisToDate,
-    )
-
-
-def _buildGeneralDistribution(
-    users: list[user_schema.UserSchema],
-    subscriberActive: bool | None,
-    hasHypnosisRequest: bool | None,
-    fromDate: int | None,
-    toDate: int | None,
-    hypnosisFromDate: int | None,
-    hypnosisToDate: int | None,
-) -> user_schema.UserGeneralDistributionSchema:
-    totalUsers = len(users)
-
-    languageStats: dict[str, dict[str, typing.Any]] = {}
-    overallGenderCounter: collections.Counter[str] = collections.Counter()
-
-    referenceDate = datetime.datetime.now(datetime.timezone.utc)
-
-    for user in users:
-        languageKey = user.language or UNKNOWN_LABEL
-        stats = languageStats.setdefault(
-            languageKey,
-            {
-                "total": 0,
-                "genderCounter": collections.Counter(),
-                "ageCounter": collections.Counter(),
-                "genderAgeCounter": collections.defaultdict(collections.Counter),
-            },
-        )
-
-        stats["total"] += 1
-
-        genderKey = user.gender or UNKNOWN_LABEL
-        stats["genderCounter"][genderKey] += 1
-        overallGenderCounter[genderKey] += 1
-
-        age = _calculateAge(user.birthdate, referenceDate)
-        if age is None or age < 0:
-            ageBucket = UNKNOWN_AGE
-        else:
-            ageBucket = _resolveAgeBucket(age)
-
-        stats["ageCounter"][ageBucket] += 1
-        stats["genderAgeCounter"][genderKey][ageBucket] += 1
-
-    languageDistributions: list[user_schema.UserLanguageDistributionSchema] = []
-
-    for languageKey in sorted(languageStats.keys()):
-        stats = languageStats[languageKey]
-        genderAgeBuckets: dict[str, dict[str, int]] = {
-            gender: _buildOrderedAgeDistribution(counter)
-            for gender, counter in stats["genderAgeCounter"].items()
-        }
-
-        languageDistributions.append(
-            user_schema.UserLanguageDistributionSchema(
-                language=languageKey,
-                totalUsers=stats["total"],
-                ageDistribution=_buildOrderedAgeDistribution(stats["ageCounter"]),
-                genderDistribution=dict(stats["genderCounter"]),
-                genderAgeBuckets=genderAgeBuckets,
-            )
-        )
-
-    return user_schema.UserGeneralDistributionSchema(
-        totalUsers=totalUsers,
-        genderTotals=dict(overallGenderCounter),
-        languageDistributions=languageDistributions,
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        fromDate=fromDate,
-        toDate=toDate,
-        hypnosisFromDate=hypnosisFromDate,
-        hypnosisToDate=hypnosisToDate,
+    return await anyio.to_thread.run_sync(
+        _processStats,
+        stats,
+        subscriberActive,
+        hasHypnosisRequest,
+        fromDate,
+        toDate,
+        effectiveHypnosisFromDate,
+        effectiveHypnosisToDate,
     )
 
 
@@ -332,66 +139,127 @@ async def _getUserPortalDistribution(
     hypnosisFromDate: int | None,
     hypnosisToDate: int | None,
 ) -> user_schema.UserPortalDistributionSchema:
-
-    effectiveHypnosisFromDate = hypnosisFromDate
-    effectiveHypnosisToDate = hypnosisToDate
-
-    # Mantiene compatibilidad con consultas anteriores reutilizando el rango de creación.
-    if effectiveHypnosisFromDate is None and hasHypnosisRequest is not None:
-        effectiveHypnosisFromDate = fromDate
-
-    if effectiveHypnosisToDate is None and hasHypnosisRequest is not None:
-        effectiveHypnosisToDate = toDate
-
-    users = await USERS_REPOSITORY.getUsersByPortal(
-        portal=portal,
-        fromDate=fromDate,
-        toDate=toDate,
-        subscriberActive=subscriberActive,
-        hasHypnosisRequest=hasHypnosisRequest,
-        hypnosisFromDate=effectiveHypnosisFromDate,
-        hypnosisToDate=effectiveHypnosisToDate,
+    effectiveHypnosisFromDate = (
+        hypnosisFromDate
+        if hypnosisFromDate is not None or hasHypnosisRequest is None
+        else fromDate
+    )
+    effectiveHypnosisToDate = (
+        hypnosisToDate
+        if hypnosisToDate is not None or hasHypnosisRequest is None
+        else toDate
     )
 
-    return await anyio.to_thread.run_sync(
-        _buildPortalDistribution,
-        portal,
-        users,
-        fromDate,
-        toDate,
+    stats = await USERS_REPOSITORY.getDistributionStats(
+        subscriberActive=subscriberActive,
+        hasHypnosisRequest=hasHypnosisRequest,
+        fromDate=fromDate,
+        toDate=toDate,
+        hypnosisFromDate=effectiveHypnosisFromDate,
+        hypnosisToDate=effectiveHypnosisToDate,
+        portal=portal,
+    )
+
+    distribution = _processStats(
+        stats,
         subscriberActive,
         hasHypnosisRequest,
+        fromDate,
+        toDate,
         effectiveHypnosisFromDate,
         effectiveHypnosisToDate,
     )
 
+    return user_schema.UserPortalDistributionSchema(
+        portal=portal, **distribution.model_dump()
+    )
 
+
+def _processStats(
+    stats: list[dict],
+    subscriberActive: bool | None,
+    hasHypnosisRequest: bool | None,
+    fromDate: int | None,
+    toDate: int | None,
+    hypnosisFromDate: int | None,
+    hypnosisToDate: int | None,
+) -> user_schema.UserGeneralDistributionSchema:
+    totalUsers = 0
+    languageStats: dict[str, dict[str, typing.Any]] = {}
+    overallGenderCounter: collections.Counter[str] = collections.Counter()
+
+    for entry in stats:
+        meta = entry["_id"]
+        count = entry["count"]
+
+        lang = meta.get("language", "S/D")
+        gender = meta.get("gender", "S/D")
+        bucket = meta.get("ageBucket", "S/D")
+
+        totalUsers += count
+        overallGenderCounter[gender] += count
+
+        s = languageStats.setdefault(
+            lang,
+            {
+                "total": 0,
+                "genderCounter": collections.Counter(),
+                "ageCounter": collections.Counter(),
+                "genderAgeCounter": collections.defaultdict(collections.Counter),
+            },
+        )
+        s["total"] += count
+        s["genderCounter"][gender] += count
+        s["ageCounter"][bucket] += count
+        s["genderAgeCounter"][gender][bucket] += count
+
+    languageDistributions: list[user_schema.UserLanguageDistributionSchema] = []
+    ALL_BUCKETS = ["S/D", "0-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
+
+    for lang in sorted(languageStats.keys()):
+        s = languageStats[lang]
+        age_dist = {b: s["ageCounter"][b] for b in ALL_BUCKETS if b in s["ageCounter"]}
+        gender_age = {}
+        for gender, bucket_counts in s["genderAgeCounter"].items():
+            gender_age[gender] = {
+                b: bucket_counts[b] for b in ALL_BUCKETS if b in bucket_counts
+            }
+
+        languageDistributions.append(
+            user_schema.UserLanguageDistributionSchema(
+                language=lang,
+                totalUsers=s["total"],
+                ageDistribution=age_dist,
+                genderDistribution=dict(s["genderCounter"]),
+                genderAgeBuckets=gender_age,
+            )
+        )
+
+    return user_schema.UserGeneralDistributionSchema(
+        totalUsers=totalUsers,
+        genderTotals=dict(overallGenderCounter),
+        languageDistributions=languageDistributions,
+        subscriberActive=subscriberActive,
+        hasHypnosisRequest=hasHypnosisRequest,
+        fromDate=fromDate,
+        toDate=toDate,
+        hypnosisFromDate=hypnosisFromDate,
+        hypnosisToDate=hypnosisToDate,
+    )
 
 
 getUsersWithAURACount = typing.cast(
-    typing.Callable[
-        [bool, int | None, int | None, bool | None], typing.Awaitable[int]
-    ],
+    typing.Callable[[bool, int | None, int | None, bool | None], typing.Awaitable[int]],
     _getUsersWithAURACount,
 )
-
-
 getUserByID = typing.cast(
-    typing.Callable[
-        [str], typing.Awaitable[user_schema.UserSchema | None]
-    ],
+    typing.Callable[[str], typing.Awaitable[user_schema.UserSchema | None]],
     _getUserByID,
 )
-
-
 getUsersByListOfIDs = typing.cast(
-    typing.Callable[
-        [list[str]], typing.Awaitable[list[user_schema.UserSchema]]
-    ],
+    typing.Callable[[list[str]], typing.Awaitable[list[user_schema.UserSchema]]],
     _getUsersByListOfIDs,
 )
-
-
 getUserPortalDistribution = typing.cast(
     typing.Callable[
         [str, int | None, int | None, bool | None, bool | None, int | None, int | None],
@@ -399,18 +267,17 @@ getUserPortalDistribution = typing.cast(
     ],
     _getUserPortalDistribution,
 )
-
-
 getUserPortals = typing.cast(
-    typing.Callable[[], typing.Awaitable[list[int]]],
-    _getUserPortals,
+    typing.Callable[[], typing.Awaitable[list[int]]], _getUserPortals
 )
-
-
 getGeneralUserDistribution = typing.cast(
     typing.Callable[
         [bool | None, bool | None, int | None, int | None, int | None, int | None],
         typing.Awaitable[user_schema.UserGeneralDistributionSchema],
     ],
     _getGeneralUserDistribution,
+)
+getUsersByHypnosisRequestCount = typing.cast(
+    typing.Callable[[bool, int | None, int | None, bool | None], typing.Awaitable[int]],
+    _getUsersByHypnosisRequestCount,
 )

@@ -3,8 +3,8 @@ import pydantic_mongo
 import typing
 from .membership_schema import MembershipSchema
 
-class UserSchema(pydantic.BaseModel):
 
+class UserSchema(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(
         extra="ignore",
         validate_by_alias=True,
@@ -12,7 +12,7 @@ class UserSchema(pydantic.BaseModel):
         serialize_by_alias=True,
     )
 
-    id : typing.Optional[pydantic_mongo.PydanticObjectId] = pydantic.Field(
+    id: typing.Optional[pydantic_mongo.PydanticObjectId] = pydantic.Field(
         default=None,
         alias="_id",
         description="Identificador único del usuario.",
@@ -73,8 +73,18 @@ class UserSchema(pydantic.BaseModel):
         description="Idioma preferido del usuario.",
     )
 
-class UserCountSchema(pydantic.BaseModel):
 
+class UserStatsSchema(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(
+        extra="ignore",
+    )
+    gender: typing.Optional[str] = None
+    language: typing.Optional[str] = None
+    birthdate: typing.Optional[str] = None
+    createdAt: typing.Optional[typing.Any] = None
+
+
+class UserCountSchema(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(
         extra="ignore",
         validate_by_alias=True,
@@ -97,8 +107,8 @@ class UserCountSchema(pydantic.BaseModel):
         description="Timestamp final (segundos Unix) utilizado en el filtrado.",
     )
 
-class UserPortalDistributionSchema(pydantic.BaseModel):
 
+class UserPortalDistributionSchema(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(
         extra="ignore",
         validate_by_alias=True,
@@ -239,7 +249,6 @@ class UserPortalDistributionSchema(pydantic.BaseModel):
 
 
 class UserPortalListSchema(pydantic.BaseModel):
-
     model_config = pydantic.ConfigDict(
         extra="ignore",
         validate_by_alias=True,
@@ -254,7 +263,6 @@ class UserPortalListSchema(pydantic.BaseModel):
 
 
 class UserLanguageDistributionSchema(pydantic.BaseModel):
-
     model_config = pydantic.ConfigDict(
         extra="ignore",
         validate_by_alias=True,
@@ -330,7 +338,6 @@ class UserLanguageDistributionSchema(pydantic.BaseModel):
 
 
 class UserGeneralDistributionSchema(pydantic.BaseModel):
-
     model_config = pydantic.ConfigDict(
         extra="ignore",
         validate_by_alias=True,

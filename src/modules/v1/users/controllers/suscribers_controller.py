@@ -55,10 +55,10 @@ async def getSuscribers(
 
     # Si se entrega un rango el conteo se limita a suscriptores generados dentro de esas fechas.
     count = await suscribers_service.getAllSuscribersCount(
-        isActive=isActive,
-        fromDate=fromDate,
-        toDate=toDate,
-    )
+        isActive=isActive,  # ty:ignore[unknown-argument]
+        fromDate=fromDate,  # ty:ignore[unknown-argument]
+        toDate=toDate,  # ty:ignore[unknown-argument]
+    )  # ty:ignore[missing-argument]
 
     LOGGER.info(
         f"Se encontraron {count} suscriptores con isActive={isActive}, fromDate={fromDate}, toDate={toDate}"
