@@ -3,6 +3,7 @@ import fastapi
 import logging
 from ..schemas import suscribers_schema
 from ..services import suscribers_service
+from fastapi_cache.decorator import cache
 
 LOGGER = logging.getLogger("uvicorn").getChild("v1.users.controllers.suscribers")
 
@@ -18,15 +19,25 @@ ROUTER = fastapi.APIRouter(
     response_class=fastapi.responses.JSONResponse,
     response_model=suscribers_schema.SuscribersSchema,
     responses={
-        200: {"description": "Respuesta exitosa", "model": suscribers_schema.SuscribersSchema},
+        200: {
+            "description": "Respuesta exitosa",
+            "model": suscribers_schema.SuscribersSchema,
+        },
         400: {"description": "Solicitud inválida"},
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getSuscribers(
     isActive: typing.Annotated[bool, fastapi.Query()] = True,
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
 ) -> suscribers_schema.SuscribersSchema:
     """
     Obtiene el número de suscriptores según los filtros proporcionados.
@@ -42,16 +53,16 @@ async def getSuscribers(
             status_code=400,
             detail="Los parámetros fromDate y toDate deben proporcionarse juntos o no incluirse.",
         )
-    
+
     if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
             detail="El parámetro toDate debe ser mayor o igual que fromDate.",
         )
-        
+
     LOGGER.info(
         f"Obteniendo suscriptores con isActive={isActive}, fromDate={fromDate}, toDate={toDate}"
-    )    
+    )
 
     # Si se entrega un rango el conteo se limita a suscriptores generados dentro de esas fechas.
     count = await suscribers_service.getAllSuscribersCount(
@@ -64,4 +75,6 @@ async def getSuscribers(
         f"Se encontraron {count} suscriptores con isActive={isActive}, fromDate={fromDate}, toDate={toDate}"
     )
 
-    return suscribers_schema.SuscribersSchema(count=count, fromDate=fromDate, toDate=toDate)
+    return suscribers_schema.SuscribersSchema(
+        count=count, fromDate=fromDate, toDate=toDate
+    )

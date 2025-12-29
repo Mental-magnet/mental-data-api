@@ -1,9 +1,12 @@
 import os
+from contextlib import asynccontextmanager
 import fastapi
 import sentry_sdk
 from fastapi.middleware.cors import CORSMiddleware
 from guard.middleware import SecurityMiddleware
 from guard.models import SecurityConfig
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 
 from .config import ENVIRONMENT_CONFIG
 from .modules import ALL_MODULE_ROUTERS
@@ -15,13 +18,23 @@ sentry_sdk.init(
     traces_sample_rate=ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_SAMPLE_RATE,
     environment=ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_ENVIRONMENT,
     release=ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_RELEASE,
-    enable_logs=ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_ENABLE_LOGS
+    enable_logs=ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_ENABLE_LOGS,
 )
 
+
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+    yield
+
+
 APP = fastapi.FastAPI(
-    title="MENTAL DATA API" + " - " + ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_ENVIRONMENT,
+    title="MENTAL DATA API"
+    + " - "
+    + ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_ENVIRONMENT,
     version=ENVIRONMENT_CONFIG.SENTRY_CONFIG.SENTRY_RELEASE,
     description="Aplicación FastAPI para el procesamiento de datos de Mental",
+    lifespan=lifespan,
 )
 
 APP.add_middleware(

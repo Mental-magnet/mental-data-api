@@ -3,12 +3,12 @@ import fastapi
 import logging
 from ..schemas import audiorequest_schema
 from ..services import hypnosis_service
+from fastapi_cache.decorator import cache
 
 LOGGER = logging.getLogger("uvicorn").getChild("v1.hypnosis.controllers.hypnosis")
 
 
 ROUTER = fastapi.APIRouter()
-
 
 
 @ROUTER.get(
@@ -17,14 +17,24 @@ ROUTER = fastapi.APIRouter()
     response_class=fastapi.responses.JSONResponse,
     response_model=audiorequest_schema.AudioRequestCountSchema,
     responses={
-        200: {"description": "Respuesta exitosa", "model": audiorequest_schema.AudioRequestCountSchema},
+        200: {
+            "description": "Respuesta exitosa",
+            "model": audiorequest_schema.AudioRequestCountSchema,
+        },
         400: {"description": "Solicitud inválida"},
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getAudioRequestsCount(
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
 ) -> audiorequest_schema.AudioRequestCountSchema:
     """
     Obtiene el número de solicitudes de audio.
@@ -40,7 +50,7 @@ async def getAudioRequestsCount(
             status_code=400,
             detail="Los parámetros fromDate y toDate deben proporcionarse juntos o no incluirse.",
         )
-    
+
     if fromDate is not None and toDate is not None and toDate < fromDate:
         raise fastapi.HTTPException(
             status_code=400,
@@ -48,12 +58,14 @@ async def getAudioRequestsCount(
         )
 
     # Al suministrar un rango se limita el conteo a solicitudes creadas dentro de esas fechas.
-    count : int = await hypnosis_service.getAllHypnosisRequestsCount(
+    count: int = await hypnosis_service.getAllHypnosisRequestsCount(
         fromDate,
         toDate,
     )
 
-    return audiorequest_schema.AudioRequestCountSchema(count=count , fromDate=fromDate, toDate=toDate)
+    return audiorequest_schema.AudioRequestCountSchema(
+        count=count, fromDate=fromDate, toDate=toDate
+    )
 
 
 @ROUTER.get(
@@ -62,11 +74,15 @@ async def getAudioRequestsCount(
     response_class=fastapi.responses.JSONResponse,
     response_model=audiorequest_schema.AudioRequestCountSchema,
     responses={
-        200: {"description": "Respuesta exitosa", "model": audiorequest_schema.AudioRequestCountSchema},
+        200: {
+            "description": "Respuesta exitosa",
+            "model": audiorequest_schema.AudioRequestCountSchema,
+        },
         400: {"description": "Solicitud inválida"},
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getAudioRequestsCountByListenedStatus(
     isListened: typing.Annotated[
         bool,
@@ -74,8 +90,14 @@ async def getAudioRequestsCountByListenedStatus(
             description="Indica si se deben contar solicitudes escuchadas (True) o no escuchadas (False).",
         ),
     ] = False,
-    fromDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
-    toDate: typing.Annotated[typing.Optional[int], fastapi.Query(description="Timestamp Unix (segundos, entero)")] = None,
+    fromDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
+    toDate: typing.Annotated[
+        typing.Optional[int],
+        fastapi.Query(description="Timestamp Unix (segundos, entero)"),
+    ] = None,
 ) -> audiorequest_schema.AudioRequestCountSchema:
     """
     Obtiene el número de solicitudes de audio según su estado de escucha.
