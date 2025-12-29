@@ -23,58 +23,80 @@ class UsersRepository(pydantic_mongo.AsyncAbstractRepository[user_schema.UserSch
         # Optimización: Filtrar por tipo de membresía al principio para evitar procesar usuarios irrelevantes
         pipeline: list[dict[str, typing.Any]] = [
             {"$match": {"lastMembership.type": {"$in": ["monthly", "yearly"]}}},
-            {
-                "$addFields": {
-                    "payDate": {
-                        "$convert": {
-                            "input": "$lastMembership.membershipPaymentDate",
-                            "to": "date",
-                            "onError": None,
-                            "onNull": None,
-                        }
-                    },
-                    "rawBillingDate": {
-                        "$convert": {
-                            "input": "$lastMembership.billingDate",
-                            "to": "date",
-                            "onError": None,
-                            "onNull": None,
-                        }
-                    },
-                    "membershipDateConverted": {
-                        "$convert": {
-                            "input": "$lastMembership.membershipDate",
-                            "to": "date",
-                            "onError": None,
-                            "onNull": None,
-                        }
-                    },
-                }
-            },
-            {
-                "$addFields": {
-                    "billDate": {
-                        "$cond": {
-                            "if": {"$ne": ["$rawBillingDate", None]},
-                            "then": "$rawBillingDate",
-                            "else": {
-                                "$cond": {
-                                    "if": {"$ne": ["$membershipDateConverted", None]},
-                                    "then": {
-                                        "$dateAdd": {
-                                            "startDate": "$membershipDateConverted",
-                                            "unit": "day",
-                                            "amount": 31,
-                                        }
-                                    },
-                                    "else": None,
-                                }
-                            },
+        ]
+
+        # Optimization: Pre-filter by string comparison to avoid expensive $convert on all documents
+        # We compare lexicographically: "2024-01-01" <= "2024-01-02" works for ISO strings.
+        if fromDate is not None:
+            fromDateParsed = dates_utils.timestampToDatetime(fromDate)
+            # Assuming dates in DB are roughly ISO format at start
+            pipeline.append(
+                {
+                    "$match": {
+                        "lastMembership.membershipPaymentDate": {
+                            "$gte": fromDateParsed.isoformat()
                         }
                     }
                 }
-            },
-        ]
+            )
+
+        pipeline.extend(
+            [
+                {
+                    "$addFields": {
+                        "payDate": {
+                            "$convert": {
+                                "input": "$lastMembership.membershipPaymentDate",
+                                "to": "date",
+                                "onError": None,
+                                "onNull": None,
+                            }
+                        },
+                        "rawBillingDate": {
+                            "$convert": {
+                                "input": "$lastMembership.billingDate",
+                                "to": "date",
+                                "onError": None,
+                                "onNull": None,
+                            }
+                        },
+                        "membershipDateConverted": {
+                            "$convert": {
+                                "input": "$lastMembership.membershipDate",
+                                "to": "date",
+                                "onError": None,
+                                "onNull": None,
+                            }
+                        },
+                    }
+                },
+                {
+                    "$addFields": {
+                        "billDate": {
+                            "$cond": {
+                                "if": {"$ne": ["$rawBillingDate", None]},
+                                "then": "$rawBillingDate",
+                                "else": {
+                                    "$cond": {
+                                        "if": {
+                                            "$ne": ["$membershipDateConverted", None]
+                                        },
+                                        "then": {
+                                            "$dateAdd": {
+                                                "startDate": "$membershipDateConverted",
+                                                "unit": "day",
+                                                "amount": 31,
+                                            }
+                                        },
+                                        "else": None,
+                                    }
+                                },
+                            }
+                        }
+                    }
+                },
+            ]
+        )
 
         if fromDate is not None and toDate is not None:
             fromDateParsed = dates_utils.timestampToDatetime(fromDate)
@@ -235,6 +257,7 @@ class UsersRepository(pydantic_mongo.AsyncAbstractRepository[user_schema.UserSch
                         "let": let_vars,
                         "pipeline": [
                             {"$match": {"$expr": {"$and": lookupConditions}}},
+                            {"$project": {"_id": 1}},
                             {"$limit": 1},
                         ],
                         "as": "audioRequests",
@@ -397,6 +420,7 @@ class UsersRepository(pydantic_mongo.AsyncAbstractRepository[user_schema.UserSch
                     "let": {"userId": {"$toString": "$_id"}},
                     "pipeline": [
                         {"$match": {"$expr": {"$and": lookupConditions}}},
+                        {"$project": {"_id": 1}},
                         {"$limit": 1},
                     ],
                     "as": "audioRequests",

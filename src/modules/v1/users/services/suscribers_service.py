@@ -1,13 +1,7 @@
-import aiocache
 import typing
 from ..repository import USERS_REPOSITORY
 
 
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=120,
-    skip_cache_func=lambda count: count == 0,
-)
 async def _getAllSuscribersCount(
     isActive: bool,
     fromDate: int | None,

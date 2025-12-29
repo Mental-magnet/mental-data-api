@@ -1,4 +1,3 @@
-import aiocache
 import typing
 
 from ..repository import HYPNOSIS_REPOSITORY
@@ -8,11 +7,6 @@ CACHE_TTL_SECONDS = (
 )
 
 
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=CACHE_TTL_SECONDS,
-    skip_cache_func=lambda count: count == 0,
-)
 async def _getAllHypnosisRequestsCount(
     fromDate: int | None,
     toDate: int | None,
@@ -25,11 +19,6 @@ async def _getAllHypnosisRequestsCount(
     return count
 
 
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=CACHE_TTL_SECONDS,
-    skip_cache_func=lambda count: count == 0,
-)
 async def _getHypnosisRequestsCountByListenedStatus(
     isListened: bool,
     fromDate: int | None,

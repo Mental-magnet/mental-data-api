@@ -2,6 +2,7 @@ import typing
 import fastapi
 from ..schemas import user_schema
 from ..services import users_service
+from fastapi_cache.decorator import cache
 
 
 ROUTER = fastapi.APIRouter()
@@ -18,6 +19,7 @@ ROUTER = fastapi.APIRouter()
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getUsersWithAURA(
     subscriberActive: typing.Annotated[
         typing.Optional[bool],
@@ -86,6 +88,7 @@ async def getUsersWithAURA(
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getUserHypnosisRequestCount(
     subscriberActive: typing.Annotated[
         typing.Optional[bool],
@@ -152,6 +155,7 @@ async def getUserHypnosisRequestCount(
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=86400)
 async def listUserPortals() -> user_schema.UserPortalListSchema:
     portals = await users_service.getUserPortals()
     return user_schema.UserPortalListSchema(portals=portals)
@@ -171,6 +175,7 @@ async def listUserPortals() -> user_schema.UserPortalListSchema:
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getGeneralUserDistribution(
     subscriberActive: typing.Annotated[
         typing.Optional[bool],
@@ -276,6 +281,7 @@ async def getGeneralUserDistribution(
         500: {"description": "Error interno del servidor"},
     },
 )
+@cache(expire=3600)
 async def getUserPortalDistribution(
     portal: typing.Annotated[
         str,
