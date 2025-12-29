@@ -1,4 +1,3 @@
-import aiocache
 import collections
 import typing
 from bson import ObjectId
@@ -8,11 +7,6 @@ from ..repository import USERS_REPOSITORY
 from ..schemas import user_schema
 
 
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=120,
-    skip_cache_func=lambda count: count == 0,
-)
 async def _getUsersWithAURACount(
     isActive: bool,
     fromDate: int | None,
@@ -57,10 +51,8 @@ async def _getUsersByListOfIDs(userIDs: list[str]) -> list[user_schema.UserSchem
 
 
 # Re-writing the whole service file to be safe
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=120,
-)
+
+
 async def _getUsersByHypnosisRequestCount(
     isActive: bool,
     fromDate: int | None,
@@ -75,16 +67,10 @@ async def _getUsersByHypnosisRequestCount(
     )
 
 
-@aiocache.cached_stampede(lease=2, ttl=600)
 async def _getUserPortals() -> list[int]:
     return await USERS_REPOSITORY.getDistinctPortals()
 
 
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=300,
-    skip_cache_func=lambda distribution: distribution.totalUsers == 0,
-)
 async def _getGeneralUserDistribution(
     subscriberActive: bool | None,
     hasHypnosisRequest: bool | None,
@@ -125,11 +111,6 @@ async def _getGeneralUserDistribution(
     )
 
 
-@aiocache.cached_stampede(
-    lease=2,
-    ttl=300,
-    skip_cache_func=lambda distribution: distribution.totalUsers == 0,
-)
 async def _getUserPortalDistribution(
     portal: str,
     fromDate: int | None,

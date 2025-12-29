@@ -41,6 +41,22 @@ Se observa que muchas fechas se almacenan como `String` en lugar de `BSON Date`.
     - **Si es `true`:** el campo representaria "Acceso válido a la plataforma". Simplifica saber quién puede entrar, pero requiere un filtro extra para métricas de facturación (`type != "free"`).
     - **Si es `false`:** el campo representaria "Suscriptor de pago actual". Facilita las métricas de negocio directamente, pero trata a los 'free' como "inactivos" en este campo específico.
 
+### IV. Medida Táctica Inmediata (String Pre-filtering)
+**Mientras se realiza la migración de fechas, se puede mitigar el impacto en CPU filtrando "en sucio" antes de convertir.**
+
+1.  **Problema:** `$convert` es costoso. Si el pipeline procesa 100k usuarios para encontrar 10 usuarios "activos hoy", MongoDB intenta convertir las fechas de los 100k primero.
+2.  **Solución:** Aprovechar que las fechas strings ISO (`"YYYY-MM-DD"`) son comparables lexicográficamente.
+3.  **Implementación:**
+    ```python
+    # Antes del $addFields con $convert:
+    pipeline.append({
+        "$match": {
+             "lastMembership.membershipPaymentDate": {"$gte": "2024-01-01"}
+        }
+    })
+    ```
+    Esto descarta el 90% de los documentos históricos usando un índice simple o scan rápido de strings, dejando solo el 10% relevante para la etapa costosa de conversión de fechas.
+
 ---
 
 ## 2. Estrategia de Migración (Backfill)
